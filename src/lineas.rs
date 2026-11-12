@@ -85,3 +85,21 @@ pub fn dibuja_cables_permanentes(
         }
     }
 }
+
+// Fichero: src/lineas.rs
+// Bloque: Bloque 5: Limpieza de cables
+pub fn limpiar_cables_huerfanos(
+    q_cables: Query<(Entity, &Cable)>,
+    q_global_trf: Query<&GlobalTransform>,
+    mut commands: Commands,
+) {
+    for (entidad, cable) in q_cables.iter() {
+        // Si no encontramos el origen o el destino en el mundo...
+        if q_global_trf.get(cable.origen).is_err()
+            || q_global_trf.get(cable.destino).is_err()
+        {
+            // El cable se autodestruye para no dar errores
+            commands.entity(entidad).despawn();
+        }
+    }
+}

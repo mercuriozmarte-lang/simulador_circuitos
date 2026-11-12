@@ -15,7 +15,8 @@ use componentes::*;
 use raton::*;
 use lineas::*;
 
-// --- Bloque 2: main ---
+// Fichero: src/main.rs
+// Bloque: Bloque 2: main
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -38,6 +39,9 @@ fn main() {
                 detectar_clic_nodo,
                 soltar_nodo,
                 mover_nodo_arrastrado,
+                // Registramos los dos nuevos sistemas de borrado
+                borrar_con_clic_derecho,
+                limpiar_cables_huerfanos,
                 dibuja_linea_temporal,
                 dibuja_cables_permanentes
             ).chain()

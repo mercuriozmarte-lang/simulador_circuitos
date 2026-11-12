@@ -152,3 +152,87 @@ pub fn mover_nodo_arrastrado(
         }
     }
 }
+
+// Fichero: src/raton.rs
+// Bloque: Bloque 5: Funciones auxiliares y borrado
+pub fn dist_punto_segmento(
+    p: Vec2,
+    a: Vec2,
+    b: Vec2
+) -> f32 {
+    let ab = b - a;
+    let ap = p - a;
+    let len_sq = ab.length_squared();
+
+    // Si el origen y destino son el mismo punto
+    if len_sq == 0.0 {
+        return p.distance(a);
+    }
+
+    let proj = ap.dot(ab) / len_sq;
+    // Limitamos la proyección entre 0 y 1 (dentro del segmento)
+    let t = proj.clamp(0.0, 1.0);
+    let punto_cercano = a + ab * t;
+
+    p.distance(punto_cercano)
+}
+
+pub fn borrar_con_clic_derecho(
+    buttons: Res<ButtonInput<MouseButton>>,
+    q_windows: Query<&Window, With<PrimaryWindow>>,
+    q_camera: Query<
+        (&Camera, &GlobalTransform),
+        With<CamaraPrincipal>
+    >,
+    q_nodos: Query<(Entity, &Transform), With<NodoLogico>>,
+    q_cables: Query<(Entity, &Cable)>,
+    q_global_trf: Query<&GlobalTransform>,
+    mut commands: Commands,
+    config: Res<ConfigApp>,
+) {
+    if !buttons.just_pressed(MouseButton::Right) {
+        return;
+    }
+
+    let Ok(window) = q_windows.single() else { return; };
+    let Ok((cam, cam_trf)) = q_camera.single() else { return; };
+
+    if let Some(pos_pantalla) = window.cursor_position() {
+        if let Ok(pos_mundo) = cam.viewport_to_world_2d(
+            cam_trf,
+            pos_pantalla
+        ) {
+            // 1. Prioridad 1: Borrar nodos (puertas lógicas)
+            for (entidad, trf) in q_nodos.iter() {
+                let centro_nodo = trf.translation.truncate();
+                if pos_mundo.distance(centro_nodo) < config.rad_clic_nodo {
+                    // Magia moderna de Bevy: despawn() ahora borra
+                    // automáticamente la puerta Y sus hijos (conectores)
+                    commands.entity(entidad).despawn();
+                    return;
+                }
+            }
+
+            // 2. Prioridad 2: Borrar cables
+            for (ent_cable, cable) in q_cables.iter() {
+                if let (Ok(trf_ori), Ok(trf_des)) = (
+                    q_global_trf.get(cable.origen),
+                    q_global_trf.get(cable.destino)
+                ) {
+                    let p_ori = trf_ori.translation().truncate();
+                    let p_des = trf_des.translation().truncate();
+
+                    // Si hacemos clic a menos de 10 píxeles del cable
+                    if dist_punto_segmento(
+                        pos_mundo,
+                        p_ori,
+                        p_des
+                    ) < 10.0 {
+                        commands.entity(ent_cable).despawn();
+                        return;
+                    }
+                }
+            }
+        }
+    }
+}
