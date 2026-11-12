@@ -14,6 +14,13 @@ pub enum ModoApp {
     CreandoLinea,
 }
 
+// Bloque: Bloque 2.1: Conectores (NUEVO)
+#[derive(Component, PartialEq, Eq)]
+pub enum TipoConector {
+    Entrada,
+    Salida,
+}
+
 // Marcador permanente para nodos lógicos
 #[derive(Component)]
 pub struct NodoLogico;
@@ -51,15 +58,14 @@ fn main() {
         .run();
 }
 
-// --- Bloque 4: Setup ---
+// Bloque: Bloque 4: Setup
 fn setup_entorno(mut commands: Commands) {
-    // Creamos la cámara y le ponemos su marcador
     commands.spawn((
         Camera2d,
         CamaraPrincipal
     ));
 
-    // Puerta lógica base
+    // Puerta lógica base (PADRE)
     commands.spawn((
         Sprite {
             color: Color::srgb(0.2, 0.6, 0.8),
@@ -68,9 +74,36 @@ fn setup_entorno(mut commands: Commands) {
         },
         Transform::from_xyz(0.0, 0.0, 1.0),
         NodoLogico,
-    ));
-}
+    ))
+        // Añadimos los conectores como HIJOS
+        .with_children(|padre| {
 
+            // Conector de Entrada (Izquierda - Verde)
+            padre.spawn((
+                Sprite {
+                    color: Color::srgb(0.2, 0.8, 0.2),
+                    custom_size: Some(Vec2::new(12.0, 12.0)),
+                    ..default()
+                },
+                // Posición relativa al centro del padre (-40 en X)
+                Transform::from_xyz(-40.0, 0.0, 0.1),
+                TipoConector::Entrada,
+            ));
+
+            // Conector de Salida (Derecha - Rojo)
+            padre.spawn((
+                Sprite {
+                    color: Color::srgb(0.8, 0.2, 0.2),
+                    custom_size: Some(Vec2::new(12.0, 12.0)),
+                    ..default()
+                },
+                // Posición relativa al centro del padre (+40 en X)
+                Transform::from_xyz(40.0, 0.0, 0.1),
+                TipoConector::Salida,
+            ));
+
+        });
+}
 // --- Bloque 5: Cuadrícula ---
 fn dibuja_cuadricula(mut gizmos: Gizmos) {
     let color = Color::srgb(0.2, 0.2, 0.2);
