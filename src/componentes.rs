@@ -20,9 +20,20 @@ pub struct EstadoCrearLinea {
     pub origen_pos: Vec2,
 }
 
-// --- Bloque 4: Componentes de Nodos ---
+// Fichero: src/componentes.rs
+// Bloque: Bloque 4: Componentes de Nodos
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TipoPuerta {
+    And,
+    Or,
+    Not,
+}
+
+// Ahora el nodo recuerda qué operación matemática debe hacer
 #[derive(Component)]
-pub struct NodoLogico;
+pub struct NodoLogico {
+    pub tipo: TipoPuerta,
+}
 
 #[derive(Component)]
 pub struct Arrastrando;

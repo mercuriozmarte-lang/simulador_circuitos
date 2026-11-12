@@ -61,10 +61,12 @@ pub fn detectar_clic_nodo(
     }
 }
 
-// --- Bloque 3: Soltar Ratón ---
+// Fichero: src/raton.rs
+// Bloque: Bloque 3: Soltar Ratón
 pub fn soltar_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
-    q_arrastrando: Query<Entity, With<Arrastrando>>,
+    // NUEVO: Pedimos &mut Transform para alterar la posición final
+    mut q_arrastrando: Query<(Entity, &mut Transform), With<Arrastrando>>,
     q_conectores: Query<
         (Entity, &GlobalTransform, &TipoConector)
     >,
@@ -83,10 +85,18 @@ pub fn soltar_nodo(
         return;
     }
 
-    for entidad in q_arrastrando.iter() {
+    // 1. Soltar nodos y aplicar el encaje magnético (Snap to Grid)
+    for (entidad, mut trf) in q_arrastrando.iter_mut() {
+        let cuadricula = 50.0; // El tamaño actual de nuestra celda
+
+        // Matemáticas de redondeo para encajar en la intersección exacta
+        trf.translation.x = (trf.translation.x / cuadricula).round() * cuadricula;
+        trf.translation.y = (trf.translation.y / cuadricula).round() * cuadricula;
+
         commands.entity(entidad).remove::<Arrastrando>();
     }
 
+    // 2. Lógica de conexión de cables
     if *estado_app.get() == ModoApp::CreandoLinea {
         let Ok(window) = q_windows.single() else {
             next_state.set(ModoApp::Edicion);
