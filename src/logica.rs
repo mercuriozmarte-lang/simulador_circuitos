@@ -1,8 +1,9 @@
 use crate::componentes::{
-    BotonInterruptor, Cable, CentroHueco, NodoLogico, TipoConector, TipoPuerta, ValorSeñal,
+    BotonInterruptor, Cable, CentroHueco, IndicadorLed, NodoLogico, TipoConector, TipoPuerta,
+    ValorSeñal,
 };
 use crate::configuracion::ConfigApp;
-use bevy::prelude::{Children, Entity, Query, Res, Sprite, Visibility, With};
+use bevy::prelude::{Children, Entity, Query, Res, Sprite, Visibility, With, Without};
 
 // Bloque: Bloque 2: Propagación de Cables
 pub fn propagar_cables(
@@ -31,15 +32,15 @@ pub fn propagar_cables(
     }
 }
 
-// ==========================================
-// Fichero: src/logica.rs
 // Bloque: Bloque 3: Evaluación de Puertas Lógicas
-// ==========================================
 pub fn evaluar_puertas(
     q_puertas: Query<(Entity, &NodoLogico), With<NodoLogico>>,
     q_children: Query<&Children>,
     q_botones: Query<&BotonInterruptor>,
     mut q_conectores: Query<(&TipoConector, &mut ValorSeñal)>,
+    // NUEVO: Consultamos el sprite del LED para iluminarlo
+    mut q_leds: Query<&mut Sprite, (With<IndicadorLed>, Without<TipoConector>)>,
+    config: Res<ConfigApp>,
 ) {
     // Recorremos cada puerta lógica del circuito
     for (entidad_puerta, puerta) in q_puertas.iter() {
@@ -50,6 +51,7 @@ pub fn evaluar_puertas(
         // Recopilamos los valores de todas las entradas de esta puerta
         let mut valores_entradas = Vec::new();
         let mut salidas = Vec::new();
+        let mut leds = Vec::new();
         let mut estado_interruptor = false;
 
         // En Bevy 0.20, hijos.iter() entrega Entity directamente por valor
@@ -68,6 +70,10 @@ pub fn evaluar_puertas(
             if let Ok(boton) = q_botones.get(*hijo) {
                 estado_interruptor = boton.estado;
             }
+            // Si el hijo es la bombilla de un LED, guardamos su entidad
+            if q_leds.contains(*hijo) {
+                leds.push(hijo);
+            }
         }
 
         // Calculamos el resultado según el tipo de puerta (¡soporta N entradas!)
@@ -76,6 +82,7 @@ pub fn evaluar_puertas(
             TipoPuerta::Or => valores_entradas.iter().any(|&v| v),
             TipoPuerta::Not => !valores_entradas.first().copied().unwrap_or(false),
             TipoPuerta::Interruptor => estado_interruptor,
+            TipoPuerta::Led => valores_entradas.first().copied().unwrap_or(false),
         };
 
         // Asignamos el resultado calculado al conector de salida de la puerta
@@ -84,13 +91,21 @@ pub fn evaluar_puertas(
                 val_salida.0 = resultado;
             }
         }
+
+        // Actualizamos el color de la bombilla si es un LED
+        for id_led in leds {
+            if let Ok(mut sprite_led) = q_leds.get_mut(*id_led) {
+                if resultado {
+                    sprite_led.color = config.col_estado_1;
+                } else {
+                    sprite_led.color = config.col_estado_0;
+                }
+            }
+        }
     }
 }
 
-// ==========================================
-// Fichero: src/logica.rs
 // Bloque: Bloque 4: Feedback Visual (Rojo, Verde o Hueco)
-// ==========================================
 pub fn actualizar_visuales_conectores(
     q_cables: Query<&Cable>,
     mut q_conectores: Query<(Entity, &ValorSeñal, &mut Sprite, &Children), With<TipoConector>>,

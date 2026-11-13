@@ -20,17 +20,16 @@ pub struct EstadoCrearLinea {
     pub origen_pos: Vec2,
 }
 
-// ==========================================
-// Fichero: src/componentes.rs
 // Bloque: Bloque 4: Componentes de Nodos
-// ==========================================
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TipoPuerta {
     And,
     Or,
     Not,
-    // NUEVO: Interruptor de entrada manual
+    // Interruptor de entrada manual
     Interruptor,
+    // Elemento receptor final (LED / Bombilla)
+    Led,
 }
 
 // Ahora el nodo recuerda qué operación matemática debe hacer
@@ -39,13 +38,17 @@ pub struct NodoLogico {
     pub tipo: TipoPuerta,
 }
 
-// NUEVO: Identifica el cuadrado izquierdo que alterna entre 0 y 1
+// Identifica el cuadrado izquierdo que alterna entre 0 y 1
 #[derive(Component)]
 pub struct BotonInterruptor {
     pub estado: bool,
 }
 
-// NUEVO: Identifica el interior oscuro del conector para verse "hueco"
+// Identifica el bloque luminoso del LED de salida
+#[derive(Component)]
+pub struct IndicadorLed;
+
+// Identifica el interior oscuro del conector para verse "hueco"
 #[derive(Component)]
 pub struct CentroHueco;
 

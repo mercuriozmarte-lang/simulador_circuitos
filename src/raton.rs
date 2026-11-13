@@ -79,13 +79,14 @@ pub fn detectar_clic_nodo(
     }
 }
 
-// Fichero: src/raton.rs
 // Bloque: Bloque 3: Soltar Ratón
 pub fn soltar_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
-    // NUEVO: Pedimos &mut Transform para alterar la posición final
+    // Pedimos &mut Transform para alterar la posición final
     mut q_arrastrando: Query<(Entity, &mut Transform), With<Arrastrando>>,
     q_conectores: Query<(Entity, &GlobalTransform, &TipoConector)>,
+    // NUEVO: Consultamos los cables para evitar entradas duplicadas
+    q_cables: Query<&Cable>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
     q_camera: Query<(&Camera, &GlobalTransform), With<CamaraPrincipal>>,
     estado_app: Res<State<ModoApp>>,
@@ -125,13 +126,19 @@ pub fn soltar_nodo(
                 for (ent_destino, g_trf, tipo) in q_conectores.iter() {
                     let pos_conector = g_trf.translation().truncate();
 
-                    if pos_mundo.distance(pos_conector) < config.rad_clic_con {
+                    let dist = pos_mundo.distance(pos_conector);
+                    if dist < config.rad_clic_con {
                         if *tipo == TipoConector::Entrada {
-                            if let Some(orig) = estado_linea.origen_entidad {
-                                commands.spawn(Cable {
-                                    origen: orig,
-                                    destino: ent_destino,
-                                });
+                            // Comprobamos si la entrada ya está ocupada
+                            let entrada_ocupada = q_cables.iter().any(|c| c.destino == ent_destino);
+
+                            if !entrada_ocupada {
+                                if let Some(orig) = estado_linea.origen_entidad {
+                                    commands.spawn(Cable {
+                                        origen: orig,
+                                        destino: ent_destino,
+                                    });
+                                }
                             }
                             break;
                         }

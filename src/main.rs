@@ -3,21 +3,21 @@
 // ==========================================
 
 // --- Bloque 1: Importaciones y Módulos ---
-use crate::logica::*;
 use bevy::prelude::*;
+
 pub mod componentes;
 pub mod configuracion;
 pub mod lineas;
 pub mod logica;
-
 pub mod raton;
 
 use componentes::*;
 use configuracion::ConfigApp;
 use lineas::*;
+use logica::*;
 use raton::*;
 
-// Bloque: Bloque 2: main
+// --- Bloque 2: main ---
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -28,6 +28,7 @@ fn main() {
             }),
             ..default()
         }))
+        // Inyectamos la configuración
         .init_resource::<ConfigApp>()
         .init_resource::<EstadoCrearLinea>()
         .init_state::<ModoApp>()
@@ -39,13 +40,14 @@ fn main() {
                 detectar_clic_nodo,
                 soltar_nodo,
                 mover_nodo_arrastrado,
+                // Sistemas de borrado
                 borrar_con_clic_derecho,
                 limpiar_cables_huerfanos,
-                // Cerebro lógico del circuito ---
+                // Cerebro lógico del circuito
                 propagar_cables,
                 evaluar_puertas,
                 actualizar_visuales_conectores,
-                // ------------------------------------------
+                // Dibujado de cables
                 dibuja_linea_temporal,
                 dibuja_cables_permanentes,
             )
@@ -54,7 +56,7 @@ fn main() {
         .run();
 }
 
-// Bloque: Bloque 3: Setup del Entorno
+// --- Bloque 3: Setup del Entorno ---
 fn setup_entorno(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -79,10 +81,10 @@ fn setup_entorno(
         &config,
     );
 
-    // Instanciamos una puerta AND y una OR
+    // Instanciamos una puerta AND, una OR y una NOT
     crear_puerta(
         &mut commands,
-        Vec2::new(-50.0, 0.0),
+        Vec2::new(-50.0, 50.0),
         TipoPuerta::And,
         &config,
     );
@@ -93,11 +95,26 @@ fn setup_entorno(
         TipoPuerta::Or,
         &config,
     );
+
+    // NUEVO: Instanciamos una puerta NOT de una sola entrada
+    crear_puerta(
+        &mut commands,
+        Vec2::new(-50.0, -100.0),
+        TipoPuerta::Not,
+        &config,
+    );
+
+    // Creamos un LED de salida a la derecha para cerrar el circuito
+    crear_led(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        Vec2::new(350.0, 0.0),
+        &config,
+    );
 }
-// ==========================================
-// Fichero: src/main.rs
-// Bloque: Bloque 4: Creador de Puertas y Conectores
-// ==========================================
+
+// --- Bloque 4: Creador de Puertas y Conectores ---
 fn bundle_conector(
     pos: Vec3,
     tipo: TipoConector,
@@ -135,6 +152,7 @@ fn crear_puerta(commands: &mut Commands, pos: Vec2, tipo_puerta: TipoPuerta, con
         TipoPuerta::Or => "OR",
         TipoPuerta::Not => "NOT",
         TipoPuerta::Interruptor => "IN",
+        TipoPuerta::Led => "OUT",
     };
 
     commands
@@ -160,27 +178,40 @@ fn crear_puerta(commands: &mut Commands, pos: Vec2, tipo_puerta: TipoPuerta, con
                 Transform::from_xyz(0.0, 0.0, 0.2),
             ));
 
-            // Entrada 1 (Superior izquierda)
-            padre
-                .spawn(bundle_conector(
-                    Vec3::new(-config.tam_puerta.x / 2.0, 15.0, 0.1),
-                    TipoConector::Entrada,
-                    config,
-                ))
-                .with_children(|con| {
-                    con.spawn(bundle_hueco(config));
-                });
+            // Si es una puerta NOT, solo lleva una entrada centrada
+            if tipo_puerta == TipoPuerta::Not {
+                padre
+                    .spawn(bundle_conector(
+                        Vec3::new(-config.tam_puerta.x / 2.0, 0.0, 0.1),
+                        TipoConector::Entrada,
+                        config,
+                    ))
+                    .with_children(|con| {
+                        con.spawn(bundle_hueco(config));
+                    });
+            } else {
+                // Entrada 1 (Superior izquierda)
+                padre
+                    .spawn(bundle_conector(
+                        Vec3::new(-config.tam_puerta.x / 2.0, 15.0, 0.1),
+                        TipoConector::Entrada,
+                        config,
+                    ))
+                    .with_children(|con| {
+                        con.spawn(bundle_hueco(config));
+                    });
 
-            // Entrada 2 (Inferior izquierda)
-            padre
-                .spawn(bundle_conector(
-                    Vec3::new(-config.tam_puerta.x / 2.0, -15.0, 0.1),
-                    TipoConector::Entrada,
-                    config,
-                ))
-                .with_children(|con| {
-                    con.spawn(bundle_hueco(config));
-                });
+                // Entrada 2 (Inferior izquierda)
+                padre
+                    .spawn(bundle_conector(
+                        Vec3::new(-config.tam_puerta.x / 2.0, -15.0, 0.1),
+                        TipoConector::Entrada,
+                        config,
+                    ))
+                    .with_children(|con| {
+                        con.spawn(bundle_hueco(config));
+                    });
+            }
 
             // Salida (Centro derecha)
             padre
@@ -195,10 +226,7 @@ fn crear_puerta(commands: &mut Commands, pos: Vec2, tipo_puerta: TipoPuerta, con
         });
 }
 
-// ==========================================
-// Fichero: src/main.rs
-// Bloque: Bloque 5: Creador de Interruptores
-// ==========================================
+// --- Bloque 5: Creador de Interruptores ---
 fn crear_interruptor(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
@@ -261,5 +289,71 @@ fn crear_interruptor(
                 .with_children(|con| {
                     con.spawn(bundle_hueco(config));
                 });
+        });
+}
+
+// --- Bloque 6: Creador de LEDs de Salida ---
+fn crear_led(
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<ColorMaterial>>,
+    pos: Vec2,
+    config: &ConfigApp,
+) {
+    // Malla triangular apuntando a la izquierda (hacia el conector de entrada)
+    let malla_triangulo = meshes.add(Triangle2d::new(
+        Vec2::new(0.0, 15.0),
+        Vec2::new(0.0, -15.0),
+        Vec2::new(-18.0, 0.0),
+    ));
+    let mat_cuerpo = materials.add(config.col_puerta);
+
+    commands
+        .spawn((
+            Transform::from_xyz(pos.x, pos.y, 1.0),
+            Visibility::default(),
+            NodoLogico {
+                tipo: TipoPuerta::Led,
+            },
+        ))
+        .with_children(|padre| {
+            // 1. Conector de Entrada en la punta izquierda del triángulo
+            padre
+                .spawn(bundle_conector(
+                    Vec3::new(-33.0, 0.0, 0.2),
+                    TipoConector::Entrada,
+                    config,
+                ))
+                .with_children(|con| {
+                    con.spawn(bundle_hueco(config));
+                });
+
+            // 2. Triángulo (Izquierda, pegado al cuerpo central)
+            padre.spawn((
+                Mesh2d(malla_triangulo),
+                MeshMaterial2d(mat_cuerpo),
+                Transform::from_xyz(-15.0, 0.0, 0.0),
+            ));
+
+            // 3. Cuadrado central: Cuerpo para arrastrar el LED
+            padre.spawn((
+                Sprite {
+                    color: config.col_puerta,
+                    custom_size: Some(Vec2::new(30.0, 30.0)),
+                    ..default()
+                },
+                Transform::from_xyz(0.0, 0.0, 0.0),
+            ));
+
+            // 4. Cuadrado derecho: Bombilla que se ilumina en Rojo (0) o Verde (1)
+            padre.spawn((
+                Sprite {
+                    color: config.col_estado_0,
+                    custom_size: Some(Vec2::new(26.0, 26.0)),
+                    ..default()
+                },
+                Transform::from_xyz(28.0, 0.0, 0.1),
+                IndicadorLed,
+            ));
         });
 }
