@@ -33,8 +33,12 @@ pub enum TipoPuerta {
     Interruptor,
     // Elemento receptor final (LED / Bombilla)
     Led,
-    // NUEVO: Generador de pulsos de reloj
+    // Generador de pulsos de reloj
     Reloj,
+    // NUEVO: Display de 7 segmentos con 7 entradas directas (A..G)
+    Display7Seg,
+    // NUEVO: Display de 7 segmentos con decodificador de 4 bits (8, 4, 2, 1)
+    Display4Bits,
 }
 
 // Ahora el nodo recuerda qué operación matemática debe hacer
@@ -49,7 +53,7 @@ pub struct BotonInterruptor {
     pub estado: bool,
 }
 
-// NUEVO: Identifica el cuadrado izquierdo del reloj que controla su frecuencia
+// Identifica el cuadrado izquierdo del reloj que controla su frecuencia
 #[derive(Component)]
 pub struct ControlReloj {
     pub estado: bool,
@@ -57,13 +61,21 @@ pub struct ControlReloj {
     pub acumulador: f32,
 }
 
-// NUEVO: Identifica el texto que muestra los Hz dentro del reloj
+// Identifica el texto que muestra los Hz dentro del reloj
 #[derive(Component)]
 pub struct TextoReloj;
 
 // Identifica el bloque luminoso del LED de salida
 #[derive(Component)]
 pub struct IndicadorLed;
+
+// NUEVO: Identifica el número de patilla de entrada (0, 1, 2...)
+#[derive(Component)]
+pub struct PinEntrada(pub usize);
+
+// NUEVO: Identifica cada uno de los 7 segmentos luminosos (0 = A ... 6 = G)
+#[derive(Component)]
+pub struct SegmentoDisplay(pub usize);
 
 // Identifica el interior oscuro del conector para verse "hueco"
 #[derive(Component)]

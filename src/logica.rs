@@ -36,17 +36,33 @@ pub fn propagar_cables(
         }
     }
 }
-
-// --- Bloque 3: Evaluación de Puertas Lógicas ---
+// ==========================================
+// Fichero: src/logica.rs
+// Bloque: Bloque 3: Evaluación de Puertas Lógicas
+// ==========================================
 pub fn evaluar_puertas(
     q_puertas: Query<(Entity, &NodoLogico), With<NodoLogico>>,
     q_children: Query<&Children>,
     q_botones: Query<&BotonInterruptor>,
-    // NUEVO: Consultamos el estado de los relojes
+    // Consultamos el estado de los relojes
     q_relojes: Query<&ControlReloj>,
+    // NUEVO: Consultamos el índice de pin para entradas ordenadas
+    q_pines: Query<&PinEntrada>,
     mut q_conectores: Query<(&TipoConector, &mut ValorSeñal)>,
     // Consultamos el sprite del LED para iluminarlo
-    mut q_leds: Query<&mut Sprite, (With<IndicadorLed>, Without<TipoConector>)>,
+    mut q_leds: Query<
+        &mut Sprite,
+        (
+            With<IndicadorLed>,
+            Without<TipoConector>,
+            Without<SegmentoDisplay>,
+        ),
+    >,
+    // NUEVO: Consultamos los 7 segmentos de los displays
+    mut q_segmentos: Query<
+        (&SegmentoDisplay, &mut Sprite),
+        (Without<TipoConector>, Without<IndicadorLed>),
+    >,
     config: Res<ConfigApp>,
 ) {
     // Recorremos cada puerta lógica del circuito
@@ -57,8 +73,10 @@ pub fn evaluar_puertas(
 
         // Recopilamos los valores de todas las entradas de esta puerta
         let mut valores_entradas = Vec::new();
+        let mut entradas_ordenadas = [false; 8];
         let mut salidas = Vec::new();
         let mut leds = Vec::new();
+        let mut segmentos = Vec::new();
         let mut estado_emisor = false;
 
         // En Bevy 0.20, hijos.iter() entrega Entity directamente por valor
@@ -67,6 +85,11 @@ pub fn evaluar_puertas(
                 match tipo {
                     TipoConector::Entrada => {
                         valores_entradas.push(val.0);
+                        if let Ok(pin) = q_pines.get(hijo) {
+                            if pin.0 < 8 {
+                                entradas_ordenadas[pin.0] = val.0;
+                            }
+                        }
                     }
                     TipoConector::Salida => {
                         salidas.push(hijo);
@@ -85,6 +108,10 @@ pub fn evaluar_puertas(
             if q_leds.contains(hijo) {
                 leds.push(hijo);
             }
+            // Si el hijo es un segmento de display, lo guardamos
+            if q_segmentos.contains(hijo) {
+                segmentos.push(hijo);
+            }
         }
 
         // Calculamos el resultado según el tipo de puerta (¡soporta N entradas!)
@@ -94,6 +121,7 @@ pub fn evaluar_puertas(
             TipoPuerta::Not => !valores_entradas.first().copied().unwrap_or(false),
             TipoPuerta::Interruptor | TipoPuerta::Reloj => estado_emisor,
             TipoPuerta::Led => valores_entradas.first().copied().unwrap_or(false),
+            TipoPuerta::Display7Seg | TipoPuerta::Display4Bits => false,
         };
 
         // Asignamos el resultado calculado al conector de salida de la puerta
@@ -113,9 +141,76 @@ pub fn evaluar_puertas(
                 }
             }
         }
+
+        // Actualizamos los 7 segmentos si es un Display
+        if !segmentos.is_empty() {
+            let mascara_seg: [bool; 7] = match puerta.tipo {
+                TipoPuerta::Display7Seg => [
+                    entradas_ordenadas[0],
+                    entradas_ordenadas[1],
+                    entradas_ordenadas[2],
+                    entradas_ordenadas[3],
+                    entradas_ordenadas[4],
+                    entradas_ordenadas[5],
+                    entradas_ordenadas[6],
+                ],
+                TipoPuerta::Display4Bits => {
+                    // Pin 0 = Bit 8, Pin 1 = Bit 4, Pin 2 = Bit 2, Pin 3 = Bit 1
+                    let mut valor_hex = 0u8;
+                    if entradas_ordenadas[0] {
+                        valor_hex += 8;
+                    }
+                    if entradas_ordenadas[1] {
+                        valor_hex += 4;
+                    }
+                    if entradas_ordenadas[2] {
+                        valor_hex += 2;
+                    }
+                    if entradas_ordenadas[3] {
+                        valor_hex += 1;
+                    }
+                    decodificar_hex_7seg(valor_hex)
+                }
+                _ => [false; 7],
+            };
+
+            let col_apagado = Color::srgb(0.18, 0.18, 0.20);
+            for id_seg in segmentos {
+                if let Ok((seg_idx, mut sprite_seg)) = q_segmentos.get_mut(id_seg) {
+                    if seg_idx.0 < 7 && mascara_seg[seg_idx.0] {
+                        sprite_seg.color = config.col_estado_1;
+                    } else {
+                        sprite_seg.color = col_apagado;
+                    }
+                }
+            }
+        }
     }
 }
 
+// Tabla de verdad para convertir un número de 0 a 15 (0..F) en 7 segmentos (A..G)
+fn decodificar_hex_7seg(valor: u8) -> [bool; 7] {
+    match valor {
+        //   A      B      C      D      E      F      G
+        0 => [true, true, true, true, true, true, false],
+        1 => [false, true, true, false, false, false, false],
+        2 => [true, true, false, true, true, false, true],
+        3 => [true, true, true, true, false, false, true],
+        4 => [false, true, true, false, false, true, true],
+        5 => [true, false, true, true, false, true, true],
+        6 => [true, false, true, true, true, true, true],
+        7 => [true, true, true, false, false, false, false],
+        8 => [true, true, true, true, true, true, true],
+        9 => [true, true, true, true, false, true, true],
+        10 => [true, true, true, false, true, true, true], // A
+        11 => [false, false, true, true, true, true, true], // b
+        12 => [true, false, false, true, true, true, false], // C
+        13 => [false, true, true, true, true, false, true], // d
+        14 => [true, false, false, true, true, true, true], // E
+        15 => [true, false, false, false, true, true, true], // F
+        _ => [false; 7],
+    }
+}
 // --- Bloque 4: Feedback Visual (Rojo, Verde o Hueco) ---
 pub fn actualizar_visuales_conectores(
     q_cables: Query<&Cable>,

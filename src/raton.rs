@@ -5,7 +5,7 @@
 // --- Bloque 1: Importaciones ---
 use crate::componentes::*;
 use crate::configuracion::ConfigApp;
-use crate::{crear_interruptor, crear_led, crear_puerta, crear_reloj};
+use crate::{crear_display, crear_interruptor, crear_led, crear_puerta, crear_reloj};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
@@ -21,7 +21,7 @@ pub fn detectar_clic_nodo(
         (&GlobalTransform, &mut BotonInterruptor, &mut Sprite),
         Without<ControlReloj>,
     >,
-    // NUEVO: Consulta para el cuadrado interactivo de frecuencia del reloj
+    // Consulta para el cuadrado interactivo de frecuencia del reloj
     mut q_relojes: Query<
         (&GlobalTransform, &mut ControlReloj, &mut Sprite, &Children),
         Without<BotonInterruptor>,
@@ -54,7 +54,7 @@ pub fn detectar_clic_nodo(
             // comprobamos si se ha hecho clic en alguna opción y lo cerramos
             if let Ok((ent_menu, menu)) = q_menu.single() {
                 let mut tipo_elegido = None;
-                let mitad_ancho = 60.0;
+                let mitad_ancho = 65.0;
                 let mitad_alto = 16.0;
 
                 for (g_trf, btn_menu) in q_botones_menu.iter() {
@@ -106,6 +106,12 @@ pub fn detectar_clic_nodo(
                                 pos_snap,
                                 &config,
                             );
+                        }
+                        TipoPuerta::Display4Bits => {
+                            crear_display(&mut commands, pos_snap, true, &config);
+                        }
+                        TipoPuerta::Display7Seg => {
+                            crear_display(&mut commands, pos_snap, false, &config);
                         }
                     }
                 }
@@ -359,9 +365,11 @@ fn abrir_menu_contextual(commands: &mut Commands, pos: Vec2) {
         ("Interruptor", TipoPuerta::Interruptor),
         ("Reloj (Clock)", TipoPuerta::Reloj),
         ("LED Salida", TipoPuerta::Led),
+        ("Display 4-Bits", TipoPuerta::Display4Bits),
+        ("Display 7-Seg", TipoPuerta::Display7Seg),
     ];
 
-    let ancho_btn = 120.0;
+    let ancho_btn = 130.0;
     let alto_btn = 32.0;
     let separacion = 36.0;
     let total_alto = (opciones.len() as f32) * separacion + 10.0;
