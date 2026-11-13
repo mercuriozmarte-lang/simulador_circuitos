@@ -7,7 +7,10 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use crate::componentes::*;
 use crate::configuracion::ConfigApp;
-use crate::archivo::{PeticionGuardar, PeticionCargar};
+use crate::archivo::{
+    abrir_dialogo_archivo, 
+    abrir_selector_carga,
+};
 use crate::{
     crear_puerta, 
     crear_interruptor, 
@@ -177,10 +180,10 @@ pub fn gestionar_clic_menu(
                 }
             }
             AccionMenu::GuardarCircuito => {
-                commands.spawn(PeticionGuardar);
+                abrir_dialogo_archivo(&mut commands, true);
             }
             AccionMenu::CargarCircuito => {
-                commands.spawn(PeticionCargar);
+                abrir_selector_carga(&mut commands);
             }
             AccionMenu::LimpiarTodo => {
                 for ent_n in q_nodos.iter() {
@@ -208,8 +211,15 @@ pub fn detectar_clic_nodo(
         (&Camera, &GlobalTransform), 
         With<CamaraPrincipal>
     >,
-    // Si el menú está abierto, ignoramos clics sobre el lienzo
-    q_menu: Query<Entity, With<MenuContextual>>,
+    // Si hay un menú, diálogo o selector de carga abierto, ignoramos clics sobre el lienzo
+    q_ui_abierta: Query<
+        Entity, 
+        Or<(
+            With<MenuContextual>, 
+            With<DialogoArchivo>, 
+            With<SelectorCarga>
+        )>
+    >,
     q_nodos: Query<(Entity, &Transform), With<NodoLogico>>,
     q_conectores: Query<
         (Entity, &GlobalTransform, &TipoConector)
@@ -234,8 +244,8 @@ pub fn detectar_clic_nodo(
         return;
     }
 
-    // Si había un menú contextual en pantalla, no interactuamos con las puertas de debajo
-    if !q_menu.is_empty() {
+    // Si había una ventana emergente en pantalla, no interactuamos con las puertas de debajo
+    if !q_ui_abierta.is_empty() {
         return;
     }
 
@@ -581,8 +591,8 @@ fn abrir_submenu(
             ("Display 7-Seg", AccionMenu::CrearNodo(TipoPuerta::Display7Seg)),
         ],
         CategoriaMenu::Archivo => vec![
-            ("Guardar", AccionMenu::GuardarCircuito),
-            ("Cargar", AccionMenu::CargarCircuito),
+            ("Guardar .cir", AccionMenu::GuardarCircuito),
+            ("Cargar .cir", AccionMenu::CargarCircuito),
             ("Limpiar Todo", AccionMenu::LimpiarTodo),
         ],
     };

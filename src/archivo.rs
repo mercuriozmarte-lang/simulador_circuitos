@@ -5,6 +5,7 @@
 // --- Bloque 1: Importaciones ---
 use std::fs;
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use crate::componentes::*;
 use crate::configuracion::ConfigApp;
 use crate::{
@@ -15,17 +16,339 @@ use crate::{
     crear_display,
 };
 
-// --- Bloque 2: Eventos de Guardado y Carga ---
+// --- Bloque 2: Eventos de Guardado y Carga con Nombre ---
 #[derive(Component)]
-pub struct PeticionGuardar;
+pub struct PeticionGuardar(pub String);
 
 #[derive(Component)]
-pub struct PeticionCargar;
+pub struct PeticionCargar(pub String);
 
-// --- Bloque 3: Sistema de Guardado en Fichero ---
+// --- Bloque 3: Creador del Cuadro de Diálogo (Guardar .cir) ---
+pub fn abrir_dialogo_archivo(
+    commands: &mut Commands,
+    es_guardar: bool,
+) {
+    let titulo = "GUARDAR CIRCUITO .CIR (Enter = OK, Esc = Cancelar)";
+    let nombre_defecto = "circuito".to_string();
+
+    // Contenedor centrado en Z = 20.0 por encima de todo
+    commands.spawn((
+        Sprite {
+            color: Color::srgb(0.10, 0.12, 0.16),
+            custom_size: Some(Vec2::new(440.0, 110.0)),
+            ..default()
+        },
+        Transform::from_xyz(0.0, 0.0, 20.0),
+        DialogoArchivo {
+            es_guardar,
+            nombre: nombre_defecto.clone(),
+        },
+    ))
+    .with_children(|padre| {
+        // Título superior de ayuda
+        padre.spawn((
+            Text2d::new(titulo),
+            TextFont {
+                font_size: bevy::text::FontSize::Px(14.0),
+                ..default()
+            },
+            TextColor(Color::srgb(0.8, 0.85, 1.0)),
+            Transform::from_xyz(0.0, 30.0, 0.1),
+        ));
+
+        // Caja oscura de entrada de texto
+        padre.spawn((
+            Sprite {
+                color: Color::srgb(0.05, 0.05, 0.07),
+                custom_size: Some(Vec2::new(360.0, 38.0)),
+                ..default()
+            },
+            Transform::from_xyz(0.0, -12.0, 0.1),
+        ));
+
+        // Texto que muestra lo que el usuario escribe + extensión .cir
+        let texto_inicial = format!("{}_.cir", nombre_defecto);
+        padre.spawn((
+            Text2d::new(texto_inicial),
+            TextFont {
+                font_size: bevy::text::FontSize::Px(18.0),
+                ..default()
+            },
+            TextColor(Color::srgb(0.2, 0.95, 0.4)),
+            Transform::from_xyz(0.0, -12.0, 0.2),
+            TextoInputArchivo,
+        ));
+    });
+}
+
+// --- Bloque 4: Selector Visual de Ficheros .cir para Cargar ---
+pub fn abrir_selector_carga(commands: &mut Commands) {
+    let mut archivos_cir = Vec::new();
+
+    // Leemos el directorio actual y filtramos por la extensión .cir
+    if let Ok(entradas) = fs::read_dir(".") {
+        for entrada in entradas.flatten() {
+            let ruta = entrada.path();
+            if ruta.is_file() {
+                if let Some(ext) = ruta.extension() {
+                    if ext == "cir" {
+                        if let Some(nom) = ruta.file_name() {
+                            if let Some(nom_str) = nom.to_str() {
+                                archivos_cir.push(nom_str.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    archivos_cir.sort();
+
+    let ancho_btn = 280.0;
+    let alto_btn = 32.0;
+    let separacion = 38.0;
+    let num_filas = archivos_cir.len().max(1) as f32;
+    let total_alto = num_filas * separacion + 70.0;
+
+    commands.spawn((
+        Sprite {
+            color: Color::srgb(0.10, 0.12, 0.16),
+            custom_size: Some(Vec2::new(340.0, total_alto)),
+            ..default()
+        },
+        Transform::from_xyz(0.0, 0.0, 20.0),
+        SelectorCarga,
+    ))
+    .with_children(|padre| {
+        let y_titulo = total_alto / 2.0 - 24.0;
+
+        padre.spawn((
+            Text2d::new("ELIGE UN CIRCUITO (.cir) [Esc = Salir]"),
+            TextFont {
+                font_size: bevy::text::FontSize::Px(14.0),
+                ..default()
+            },
+            TextColor(Color::srgb(0.8, 0.85, 1.0)),
+            Transform::from_xyz(0.0, y_titulo, 0.1),
+        ));
+
+        if archivos_cir.is_empty() {
+            padre.spawn((
+                Text2d::new("No hay ficheros .cir guardados"),
+                TextFont {
+                    font_size: bevy::text::FontSize::Px(15.0),
+                    ..default()
+                },
+                TextColor(Color::srgb(0.9, 0.4, 0.4)),
+                Transform::from_xyz(0.0, -10.0, 0.1),
+            ));
+        } else {
+            let inicio_y = y_titulo - 38.0;
+            for (i, nom_archivo) in archivos_cir.iter().enumerate() {
+                let y = inicio_y - (i as f32 * separacion);
+                let centro_mundo = Vec2::new(0.0, y);
+
+                padre.spawn((
+                    Sprite {
+                        color: Color::srgb(0.22, 0.26, 0.34),
+                        custom_size: Some(Vec2::new(ancho_btn, alto_btn)),
+                        ..default()
+                    },
+                    Transform::from_xyz(0.0, y, 0.1),
+                    BotonArchivoCir {
+                        nombre_archivo: nom_archivo.clone(),
+                        centro_mundo,
+                    },
+                ))
+                .with_children(|btn| {
+                    btn.spawn((
+                        Text2d::new(nom_archivo.clone()),
+                        TextFont {
+                            font_size: bevy::text::FontSize::Px(16.0),
+                            ..default()
+                        },
+                        TextColor(Color::WHITE),
+                        Transform::from_xyz(0.0, 0.0, 0.1),
+                    ));
+                });
+            }
+        }
+    });
+}
+
+// --- Bloque 5: Interacción con la Lista de Ficheros .cir ---
+pub fn gestionar_clic_selector_carga(
+    buttons: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    q_windows: Query<&Window, With<PrimaryWindow>>,
+    q_camera: Query<
+        (&Camera, &GlobalTransform), 
+        With<CamaraPrincipal>
+    >,
+    q_selector: Query<Entity, With<SelectorCarga>>,
+    mut q_botones_cir: Query<(&BotonArchivoCir, &mut Sprite)>,
+    mut commands: Commands,
+) {
+    let Ok(ent_sel) = q_selector.single() else {
+        return;
+    };
+
+    // Cerrar con tecla Escape
+    if keys.just_pressed(KeyCode::Escape) {
+        commands.entity(ent_sel).despawn();
+        return;
+    }
+
+    let Ok(window) = q_windows.single() else { return; };
+    let Ok((cam, cam_trf)) = q_camera.single() else { return; };
+    let Some(pos_pantalla) = window.cursor_position() else {
+        return;
+    };
+    let Ok(pos_mundo) = cam.viewport_to_world_2d(
+        cam_trf, 
+        pos_pantalla
+    ) else {
+        return;
+    };
+
+    let mut archivo_bajo_cursor = None;
+    let mitad_ancho = 140.0;
+    let mitad_alto = 16.0;
+
+    for (btn, mut sprite) in q_botones_cir.iter_mut() {
+        let pos_btn = btn.centro_mundo;
+        let dentro_x = (pos_mundo.x - pos_btn.x).abs() < mitad_ancho;
+        let dentro_y = (pos_mundo.y - pos_btn.y).abs() < mitad_alto;
+
+        if dentro_x && dentro_y {
+            archivo_bajo_cursor = Some(btn.nombre_archivo.clone());
+            sprite.color = Color::srgb(0.35, 0.50, 0.65);
+        } else {
+            sprite.color = Color::srgb(0.22, 0.26, 0.34);
+        }
+    }
+
+    if !buttons.just_pressed(MouseButton::Left) {
+        return;
+    }
+
+    // Si hace clic izquierdo sobre un fichero .cir, lanzamos la petición de carga
+    if let Some(nombre) = archivo_bajo_cursor {
+        commands.spawn(PeticionCargar(nombre));
+    }
+
+    // Cerramos el selector tras elegir un archivo o al hacer clic fuera
+    commands.entity(ent_sel).despawn();
+}
+
+// --- Bloque 6: Gestión del Teclado para Guardar Archivo (.cir) ---
+pub fn gestionar_teclado_archivo(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut q_dialogo: Query<(Entity, &mut DialogoArchivo)>,
+    mut q_texto: Query<&mut Text2d, With<TextoInputArchivo>>,
+    mut commands: Commands,
+) {
+    let Ok((ent_dlg, mut dlg)) = q_dialogo.single_mut() else {
+        return;
+    };
+
+    // 1. Cancelar con Escape
+    if keys.just_pressed(KeyCode::Escape) {
+        commands.entity(ent_dlg).despawn();
+        return;
+    }
+
+    // 2. Confirmar con Enter
+    if keys.just_pressed(KeyCode::Enter) {
+        let base = dlg.nombre.trim().to_string();
+        if !base.is_empty() {
+            let nombre_final = if base.ends_with(".cir") {
+                base
+            } else {
+                format!("{}.cir", base)
+            };
+
+            if dlg.es_guardar {
+                commands.spawn(PeticionGuardar(nombre_final));
+            } else {
+                commands.spawn(PeticionCargar(nombre_final));
+            }
+        }
+        commands.entity(ent_dlg).despawn();
+        return;
+    }
+
+    // 3. Borrar último carácter con Backspace
+    let mut cambiado = false;
+    if keys.just_pressed(KeyCode::Backspace) {
+        dlg.nombre.pop();
+        cambiado = true;
+    }
+
+    // 4. Lectura de letras, números y guiones
+    let shift = keys.pressed(KeyCode::ShiftLeft) 
+        || keys.pressed(KeyCode::ShiftRight);
+
+    let mapa_teclas: [(KeyCode, char, char); 37] = [
+        (KeyCode::KeyA, 'a', 'A'),
+        (KeyCode::KeyB, 'b', 'B'),
+        (KeyCode::KeyC, 'c', 'C'),
+        (KeyCode::KeyD, 'd', 'D'),
+        (KeyCode::KeyE, 'e', 'E'),
+        (KeyCode::KeyF, 'f', 'F'),
+        (KeyCode::KeyG, 'g', 'G'),
+        (KeyCode::KeyH, 'h', 'H'),
+        (KeyCode::KeyI, 'i', 'I'),
+        (KeyCode::KeyJ, 'j', 'J'),
+        (KeyCode::KeyK, 'k', 'K'),
+        (KeyCode::KeyL, 'l', 'L'),
+        (KeyCode::KeyM, 'm', 'M'),
+        (KeyCode::KeyN, 'n', 'N'),
+        (KeyCode::KeyO, 'o', 'O'),
+        (KeyCode::KeyP, 'p', 'P'),
+        (KeyCode::KeyQ, 'q', 'Q'),
+        (KeyCode::KeyR, 'r', 'R'),
+        (KeyCode::KeyS, 's', 'S'),
+        (KeyCode::KeyT, 't', 'T'),
+        (KeyCode::KeyU, 'u', 'U'),
+        (KeyCode::KeyV, 'v', 'V'),
+        (KeyCode::KeyW, 'w', 'W'),
+        (KeyCode::KeyX, 'x', 'X'),
+        (KeyCode::KeyY, 'y', 'Y'),
+        (KeyCode::KeyZ, 'z', 'Z'),
+        (KeyCode::Digit0, '0', '0'),
+        (KeyCode::Digit1, '1', '1'),
+        (KeyCode::Digit2, '2', '2'),
+        (KeyCode::Digit3, '3', '3'),
+        (KeyCode::Digit4, '4', '4'),
+        (KeyCode::Digit5, '5', '5'),
+        (KeyCode::Digit6, '6', '6'),
+        (KeyCode::Digit7, '7', '7'),
+        (KeyCode::Digit8, '8', '8'),
+        (KeyCode::Digit9, '9', '9'),
+        (KeyCode::Minus, '-', '_'),
+    ];
+
+    for (codigo, min, may) in mapa_teclas.iter() {
+        if keys.just_pressed(*codigo) && dlg.nombre.len() < 24 {
+            let c = if shift { *may } else { *min };
+            dlg.nombre.push(c);
+            cambiado = true;
+        }
+    }
+
+    if cambiado {
+        for mut txt in q_texto.iter_mut() {
+            txt.0 = format!("{}_.cir", dlg.nombre);
+        }
+    }
+}
+
+// --- Bloque 7: Sistema de Guardado y Carga en Fichero ---
 pub fn procesar_guardado_y_carga(
-    q_guardar: Query<Entity, With<PeticionGuardar>>,
-    q_cargar: Query<Entity, With<PeticionCargar>>,
+    q_guardar: Query<(Entity, &PeticionGuardar)>,
+    q_cargar: Query<(Entity, &PeticionCargar)>,
     q_nodos: Query<(Entity, &Transform, &NodoLogico, &Children)>,
     q_cables: Query<(Entity, &Cable)>,
     q_botones: Query<&BotonInterruptor>,
@@ -38,14 +361,15 @@ pub fn procesar_guardado_y_carga(
     config: Res<ConfigApp>,
 ) {
     // 1. Procesar Guardado si existe petición
-    let mut debe_guardar = false;
-    for ent in q_guardar.iter() {
+    let mut archivo_guardar = None;
+    for (ent, pet) in q_guardar.iter() {
+        archivo_guardar = Some(pet.0.clone());
         commands.entity(ent).despawn();
-        debe_guardar = true;
     }
 
-    if debe_guardar {
+    if let Some(ruta) = archivo_guardar {
         guardar_en_disco(
+            &ruta,
             &q_nodos,
             &q_cables,
             &q_botones,
@@ -56,14 +380,15 @@ pub fn procesar_guardado_y_carga(
     }
 
     // 2. Procesar Carga si existe petición
-    let mut debe_cargar = false;
-    for ent in q_cargar.iter() {
+    let mut archivo_cargar = None;
+    for (ent, pet) in q_cargar.iter() {
+        archivo_cargar = Some(pet.0.clone());
         commands.entity(ent).despawn();
-        debe_cargar = true;
     }
 
-    if debe_cargar {
+    if let Some(ruta) = archivo_cargar {
         cargar_desde_disco(
+            &ruta,
             &q_nodos,
             &q_cables,
             &mut commands,
@@ -74,8 +399,9 @@ pub fn procesar_guardado_y_carga(
     }
 }
 
-// --- Bloque 4: Lógica de Serialización a Texto ---
+// --- Bloque 8: Lógica de Serialización a Texto ---
 fn guardar_en_disco(
+    ruta_archivo: &str,
     q_nodos: &Query<(Entity, &Transform, &NodoLogico, &Children)>,
     q_cables: &Query<(Entity, &Cable)>,
     q_botones: &Query<&BotonInterruptor>,
@@ -169,15 +495,16 @@ fn guardar_en_disco(
     }
 
     let contenido = lineas.join("\n");
-    if let Err(err) = fs::write("circuito.txt", contenido) {
-        println!("Error al guardar circuito.txt: {}", err);
+    if let Err(err) = fs::write(ruta_archivo, contenido) {
+        println!("Error al guardar {}: {}", ruta_archivo, err);
     } else {
-        println!("Circuito guardado correctamente en circuito.txt");
+        println!("Circuito guardado correctamente en {}", ruta_archivo);
     }
 }
 
-// --- Bloque 5: Lógica de Lectura y Reconstrucción ---
+// --- Bloque 9: Lógica de Lectura y Reconstrucción ---
 fn cargar_desde_disco(
+    ruta_archivo: &str,
     q_nodos: &Query<(Entity, &Transform, &NodoLogico, &Children)>,
     q_cables: &Query<(Entity, &Cable)>,
     commands: &mut Commands,
@@ -185,8 +512,8 @@ fn cargar_desde_disco(
     materials: &mut ResMut<Assets<ColorMaterial>>,
     config: &ConfigApp,
 ) {
-    let Ok(contenido) = fs::read_to_string("circuito.txt") else {
-        println!("No se encontró el fichero circuito.txt");
+    let Ok(contenido) = fs::read_to_string(ruta_archivo) else {
+        println!("No se encontró el fichero {}", ruta_archivo);
         return;
     };
 
@@ -295,5 +622,5 @@ fn cargar_desde_disco(
         }
     }
 
-    println!("Circuito cargado correctamente desde circuito.txt");
+    println!("Circuito cargado correctamente desde {}", ruta_archivo);
 }

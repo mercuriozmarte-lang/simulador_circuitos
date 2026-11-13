@@ -102,7 +102,10 @@ pub struct Cable {
     pub destino: Entity,
 }
 
-// --- Bloque 7: Componentes del Menú Contextual ---
+// ==========================================
+// Fichero: src/componentes.rs
+// Bloque: Bloque 7: Componentes del Menú Contextual
+// ==========================================
 #[derive(Component)]
 pub struct MenuContextual {
     // Guardamos dónde se hizo clic derecho para crear ahí la pieza
@@ -136,5 +139,27 @@ pub enum AccionMenu {
 pub struct BotonMenu {
     pub accion: AccionMenu,
     // Coordenada mundial directa del centro del botón para detección infalible
+    pub centro_mundo: Vec2,
+}
+
+// Ventana flotante para teclear el nombre del fichero al guardar
+#[derive(Component)]
+pub struct DialogoArchivo {
+    pub es_guardar: bool,
+    pub nombre: String,
+}
+
+// Etiqueta de texto dinámico dentro del cuadro de diálogo
+#[derive(Component)]
+pub struct TextoInputArchivo;
+
+// NUEVO: Ventana contenedora de la lista de ficheros .cir encontrados
+#[derive(Component)]
+pub struct SelectorCarga;
+
+// NUEVO: Botón individual para cada fichero .cir de la lista
+#[derive(Component)]
+pub struct BotonArchivoCir {
+    pub nombre_archivo: String,
     pub centro_mundo: Vec2,
 }
