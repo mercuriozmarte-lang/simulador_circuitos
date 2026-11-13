@@ -2,10 +2,10 @@
 // Fichero: src/raton.rs
 // ==========================================
 
+// --- Bloque 1: Importaciones ---
 use crate::componentes::*;
 use crate::configuracion::ConfigApp;
-use crate::{crear_interruptor, crear_led, crear_puerta};
-// --- Bloque 1: Importaciones ---
+use crate::{crear_interruptor, crear_led, crear_puerta, crear_reloj};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
@@ -17,8 +17,17 @@ pub fn detectar_clic_nodo(
     q_nodos: Query<(Entity, &Transform), With<NodoLogico>>,
     q_conectores: Query<(Entity, &GlobalTransform, &TipoConector)>,
     // Consulta para el cuadrado interactivo del interruptor
-    mut q_botones: Query<(&GlobalTransform, &mut BotonInterruptor, &mut Sprite)>,
-    // NUEVO: Consultas para el menú contextual
+    mut q_botones: Query<
+        (&GlobalTransform, &mut BotonInterruptor, &mut Sprite),
+        Without<ControlReloj>,
+    >,
+    // NUEVO: Consulta para el cuadrado interactivo de frecuencia del reloj
+    mut q_relojes: Query<
+        (&GlobalTransform, &mut ControlReloj, &mut Sprite, &Children),
+        Without<BotonInterruptor>,
+    >,
+    mut q_textos_reloj: Query<&mut Text2d, With<TextoReloj>>,
+    // Consultas para el menú contextual
     q_menu: Query<(Entity, &MenuContextual)>,
     q_botones_menu: Query<(&GlobalTransform, &BotonMenu)>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -89,6 +98,15 @@ pub fn detectar_clic_nodo(
                                 &config,
                             );
                         }
+                        TipoPuerta::Reloj => {
+                            crear_reloj(
+                                &mut commands,
+                                &mut meshes,
+                                &mut materials,
+                                pos_snap,
+                                &config,
+                            );
+                        }
                     }
                 }
 
@@ -126,6 +144,32 @@ pub fn detectar_clic_nodo(
                         sprite.color = config.col_estado_0;
                     }
                     // Salimos para NO arrastrar el interruptor al cambiar su estado
+                    return;
+                }
+            }
+
+            // 2B. Prioridad 2B: Clic en el cuadrado de frecuencia del Reloj
+            let etiquetas_frec = ["OFF", "1Hz", "2Hz", "5Hz", "10Hz"];
+            for (g_trf, mut reloj, mut sprite, hijos) in q_relojes.iter_mut() {
+                let pos_ctrl = g_trf.translation().truncate();
+                // El recuadro de frecuencia mide 34x26 (mitad: 17x13)
+                if (pos_mundo.x - pos_ctrl.x).abs() < 17.0
+                    && (pos_mundo.y - pos_ctrl.y).abs() < 13.0
+                {
+                    reloj.indice_frec = (reloj.indice_frec + 1) % etiquetas_frec.len();
+                    reloj.acumulador = 0.0;
+
+                    if reloj.indice_frec == 0 {
+                        reloj.estado = false;
+                        sprite.color = config.col_estado_0;
+                    }
+
+                    // Actualizamos el texto hijo con la nueva frecuencia
+                    for hijo in hijos.iter() {
+                        if let Ok(mut txt) = q_textos_reloj.get_mut(hijo) {
+                            txt.0 = etiquetas_frec[reloj.indice_frec].to_string();
+                        }
+                    }
                     return;
                 }
             }
@@ -245,7 +289,7 @@ pub fn borrar_con_clic_derecho(
     q_nodos: Query<(Entity, &Transform), With<NodoLogico>>,
     q_cables: Query<(Entity, &Cable)>,
     q_global_trf: Query<&GlobalTransform>,
-    // NUEVO: Consultamos si ya hay un menú abierto
+    // Consultamos si ya hay un menú abierto
     q_menu: Query<Entity, With<MenuContextual>>,
     mut commands: Commands,
     config: Res<ConfigApp>,
@@ -299,20 +343,21 @@ pub fn borrar_con_clic_derecho(
                 }
             }
 
-            // 3. NUEVO: Si no hemos borrado ni nodo ni cable, estamos en vacío:
+            // 3. Si no hemos borrado ni nodo ni cable, estamos en vacío:
             // abrimos el menú contextual de creación en este punto.
             abrir_menu_contextual(&mut commands, pos_mundo);
         }
     }
 }
 
-// --- Bloque 6: Creador del Menú Contextual (NUEVO) ---
+// --- Bloque 6: Creador del Menú Contextual ---
 fn abrir_menu_contextual(commands: &mut Commands, pos: Vec2) {
     let opciones = [
         ("Puerta AND", TipoPuerta::And),
         ("Puerta OR", TipoPuerta::Or),
         ("Puerta NOT", TipoPuerta::Not),
         ("Interruptor", TipoPuerta::Interruptor),
+        ("Reloj (Clock)", TipoPuerta::Reloj),
         ("LED Salida", TipoPuerta::Led),
     ];
 

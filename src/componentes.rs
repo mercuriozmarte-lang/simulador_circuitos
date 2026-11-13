@@ -20,7 +20,10 @@ pub struct EstadoCrearLinea {
     pub origen_pos: Vec2,
 }
 
+// ==========================================
+// Fichero: src/componentes.rs
 // Bloque: Bloque 4: Componentes de Nodos
+// ==========================================
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TipoPuerta {
     And,
@@ -30,6 +33,8 @@ pub enum TipoPuerta {
     Interruptor,
     // Elemento receptor final (LED / Bombilla)
     Led,
+    // NUEVO: Generador de pulsos de reloj
+    Reloj,
 }
 
 // Ahora el nodo recuerda qué operación matemática debe hacer
@@ -43,6 +48,18 @@ pub struct NodoLogico {
 pub struct BotonInterruptor {
     pub estado: bool,
 }
+
+// NUEVO: Identifica el cuadrado izquierdo del reloj que controla su frecuencia
+#[derive(Component)]
+pub struct ControlReloj {
+    pub estado: bool,
+    pub indice_frec: usize,
+    pub acumulador: f32,
+}
+
+// NUEVO: Identifica el texto que muestra los Hz dentro del reloj
+#[derive(Component)]
+pub struct TextoReloj;
 
 // Identifica el bloque luminoso del LED de salida
 #[derive(Component)]

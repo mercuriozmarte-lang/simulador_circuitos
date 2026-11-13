@@ -1,3 +1,4 @@
+
 // ==========================================
 // Fichero: src/main.rs
 // ==========================================
@@ -5,17 +6,17 @@
 // --- Bloque 1: Importaciones y Módulos ---
 use bevy::prelude::*;
 
-pub mod componentes;
 pub mod configuracion;
+pub mod componentes;
+pub mod raton;
 pub mod lineas;
 pub mod logica;
-pub mod raton;
+
+use configuracion::ConfigApp;
 use componentes::*;
-use componentes::*;
+use raton::*;
 use lineas::*;
 use logica::*;
-use configuracion::ConfigApp;
-use raton::*;
 
 // --- Bloque 2: main ---
 fn main() {
@@ -43,15 +44,15 @@ fn main() {
                 // Sistemas de borrado y menú contextual
                 borrar_con_clic_derecho,
                 limpiar_cables_huerfanos,
-                // Cerebro lógico del circuito
+                // Temporizador de relojes y cerebro lógico
+                actualizar_relojes,
                 propagar_cables,
                 evaluar_puertas,
                 actualizar_visuales_conectores,
                 // Dibujado de cables
                 dibuja_linea_temporal,
-                dibuja_cables_permanentes,
-            )
-                .chain(),
+                dibuja_cables_permanentes
+            ).chain()
         )
         .run();
 }
@@ -63,7 +64,10 @@ fn setup_entorno(
     mut materials: ResMut<Assets<ColorMaterial>>,
     config: Res<ConfigApp>,
 ) {
-    commands.spawn((Camera2d, CamaraPrincipal));
+    commands.spawn((
+        Camera2d,
+        CamaraPrincipal
+    ));
 
     // Creamos dos interruptores de entrada a la izquierda
     crear_interruptor(
@@ -86,14 +90,14 @@ fn setup_entorno(
         &mut commands,
         Vec2::new(-50.0, 50.0),
         TipoPuerta::And,
-        &config,
+        &config
     );
 
     crear_puerta(
         &mut commands,
         Vec2::new(150.0, 50.0),
         TipoPuerta::Or,
-        &config,
+        &config
     );
 
     // Instanciamos una puerta NOT de una sola entrada
@@ -101,7 +105,7 @@ fn setup_entorno(
         &mut commands,
         Vec2::new(-50.0, -100.0),
         TipoPuerta::Not,
-        &config,
+        &config
     );
 
     // Creamos un LED de salida a la derecha para cerrar el circuito
@@ -132,12 +136,16 @@ pub fn bundle_conector(
     )
 }
 
-pub fn bundle_hueco(config: &ConfigApp) -> (Sprite, Transform, CentroHueco) {
+pub fn bundle_hueco(
+    config: &ConfigApp
+) -> (Sprite, Transform, CentroHueco) {
     // Cuadrado interior oscuro que hace que el conector se vea "hueco"
     (
         Sprite {
             color: Color::srgb(0.1, 0.1, 0.1),
-            custom_size: Some(config.tam_conector - Vec2::splat(4.0)),
+            custom_size: Some(
+                config.tam_conector - Vec2::splat(4.0)
+            ),
             ..default()
         },
         Transform::from_xyz(0.0, 0.0, 0.1),
@@ -158,19 +166,19 @@ pub fn crear_puerta(
         TipoPuerta::Not => "NOT",
         TipoPuerta::Interruptor => "IN",
         TipoPuerta::Led => "OUT",
+        TipoPuerta::Reloj => "CLK",
     };
 
-    commands
-        .spawn((
-            Sprite {
-                color: config.col_puerta,
-                custom_size: Some(config.tam_puerta),
-                ..default()
-            },
-            Transform::from_xyz(pos.x, pos.y, 1.0),
-            // Guardamos su tipo para evaluar la lógica en el futuro
-            NodoLogico { tipo: tipo_puerta },
-        ))
+    commands.spawn((
+        Sprite {
+            color: config.col_puerta,
+            custom_size: Some(config.tam_puerta),
+            ..default()
+        },
+        Transform::from_xyz(pos.x, pos.y, 1.0),
+        // Guardamos su tipo para evaluar la lógica en el futuro
+        NodoLogico { tipo: tipo_puerta },
+    ))
         .with_children(|padre| {
             padre.spawn((
                 Text2d::new(texto),
@@ -185,46 +193,42 @@ pub fn crear_puerta(
 
             // Si es una puerta NOT, solo lleva una entrada centrada
             if tipo_puerta == TipoPuerta::Not {
-                padre
-                    .spawn(bundle_conector(
-                        Vec3::new(-config.tam_puerta.x / 2.0, 0.0, 0.1),
-                        TipoConector::Entrada,
-                        config,
-                    ))
+                padre.spawn(bundle_conector(
+                    Vec3::new(-config.tam_puerta.x / 2.0, 0.0, 0.1),
+                    TipoConector::Entrada,
+                    config,
+                ))
                     .with_children(|con| {
                         con.spawn(bundle_hueco(config));
                     });
             } else {
                 // Entrada 1 (Superior izquierda)
-                padre
-                    .spawn(bundle_conector(
-                        Vec3::new(-config.tam_puerta.x / 2.0, 15.0, 0.1),
-                        TipoConector::Entrada,
-                        config,
-                    ))
+                padre.spawn(bundle_conector(
+                    Vec3::new(-config.tam_puerta.x / 2.0, 15.0, 0.1),
+                    TipoConector::Entrada,
+                    config,
+                ))
                     .with_children(|con| {
                         con.spawn(bundle_hueco(config));
                     });
 
                 // Entrada 2 (Inferior izquierda)
-                padre
-                    .spawn(bundle_conector(
-                        Vec3::new(-config.tam_puerta.x / 2.0, -15.0, 0.1),
-                        TipoConector::Entrada,
-                        config,
-                    ))
+                padre.spawn(bundle_conector(
+                    Vec3::new(-config.tam_puerta.x / 2.0, -15.0, 0.1),
+                    TipoConector::Entrada,
+                    config,
+                ))
                     .with_children(|con| {
                         con.spawn(bundle_hueco(config));
                     });
             }
 
             // Salida (Centro derecha)
-            padre
-                .spawn(bundle_conector(
-                    Vec3::new(config.tam_puerta.x / 2.0, 0.0, 0.1),
-                    TipoConector::Salida,
-                    config,
-                ))
+            padre.spawn(bundle_conector(
+                Vec3::new(config.tam_puerta.x / 2.0, 0.0, 0.1),
+                TipoConector::Salida,
+                config,
+            ))
                 .with_children(|con| {
                     con.spawn(bundle_hueco(config));
                 });
@@ -247,14 +251,11 @@ pub fn crear_interruptor(
     ));
     let mat_cuerpo = materials.add(config.col_puerta);
 
-    commands
-        .spawn((
-            Transform::from_xyz(pos.x, pos.y, 1.0),
-            Visibility::default(),
-            NodoLogico {
-                tipo: TipoPuerta::Interruptor,
-            },
-        ))
+    commands.spawn((
+        Transform::from_xyz(pos.x, pos.y, 1.0),
+        Visibility::default(),
+        NodoLogico { tipo: TipoPuerta::Interruptor },
+    ))
         .with_children(|padre| {
             // 1. Primer cuadrado (Izquierda): Botón para alternar 0 (Rojo) y 1 (Verde)
             padre.spawn((
@@ -285,12 +286,11 @@ pub fn crear_interruptor(
             ));
 
             // 4. Conector de Salida en la punta del triángulo
-            padre
-                .spawn(bundle_conector(
-                    Vec3::new(33.0, 0.0, 0.2),
-                    TipoConector::Salida,
-                    config,
-                ))
+            padre.spawn(bundle_conector(
+                Vec3::new(33.0, 0.0, 0.2),
+                TipoConector::Salida,
+                config,
+            ))
                 .with_children(|con| {
                     con.spawn(bundle_hueco(config));
                 });
@@ -313,22 +313,18 @@ pub fn crear_led(
     ));
     let mat_cuerpo = materials.add(config.col_puerta);
 
-    commands
-        .spawn((
-            Transform::from_xyz(pos.x, pos.y, 1.0),
-            Visibility::default(),
-            NodoLogico {
-                tipo: TipoPuerta::Led,
-            },
-        ))
+    commands.spawn((
+        Transform::from_xyz(pos.x, pos.y, 1.0),
+        Visibility::default(),
+        NodoLogico { tipo: TipoPuerta::Led },
+    ))
         .with_children(|padre| {
             // 1. Conector de Entrada en la punta izquierda del triángulo
-            padre
-                .spawn(bundle_conector(
-                    Vec3::new(-33.0, 0.0, 0.2),
-                    TipoConector::Entrada,
-                    config,
-                ))
+            padre.spawn(bundle_conector(
+                Vec3::new(-33.0, 0.0, 0.2),
+                TipoConector::Entrada,
+                config,
+            ))
                 .with_children(|con| {
                     con.spawn(bundle_hueco(config));
                 });
@@ -360,5 +356,83 @@ pub fn crear_led(
                 Transform::from_xyz(28.0, 0.0, 0.1),
                 IndicadorLed,
             ));
+        });
+}
+
+// --- Bloque 7: Creador de Relojes (Clock) (NUEVO) ---
+pub fn crear_reloj(
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<ColorMaterial>>,
+    pos: Vec2,
+    config: &ConfigApp,
+) {
+    // Malla triangular apuntando a la derecha
+    let malla_triangulo = meshes.add(Triangle2d::new(
+        Vec2::new(0.0, 15.0),
+        Vec2::new(0.0, -15.0),
+        Vec2::new(18.0, 0.0),
+    ));
+    let mat_cuerpo = materials.add(config.col_puerta);
+
+    commands.spawn((
+        Transform::from_xyz(pos.x, pos.y, 1.0),
+        Visibility::default(),
+        NodoLogico { tipo: TipoPuerta::Reloj },
+    ))
+        .with_children(|padre| {
+            // 1. Recuadro izquierdo: Botón de frecuencia (empieza en 1Hz = índice 1)
+            padre.spawn((
+                Sprite {
+                    color: config.col_estado_0,
+                    custom_size: Some(Vec2::new(34.0, 26.0)),
+                    ..default()
+                },
+                Transform::from_xyz(-32.0, 0.0, 0.1),
+                ControlReloj {
+                    estado: false,
+                    indice_frec: 1,
+                    acumulador: 0.0,
+                },
+            ))
+                .with_children(|ctrl| {
+                    ctrl.spawn((
+                        Text2d::new("1Hz"),
+                        TextFont {
+                            font_size: bevy::text::FontSize::Px(12.0),
+                            ..default()
+                        },
+                        TextColor(Color::WHITE),
+                        Transform::from_xyz(0.0, 0.0, 0.1),
+                        TextoReloj,
+                    ));
+                });
+
+            // 2. Cuadrado central: Cuerpo para arrastrar el reloj
+            padre.spawn((
+                Sprite {
+                    color: config.col_puerta,
+                    custom_size: Some(Vec2::new(30.0, 30.0)),
+                    ..default()
+                },
+                Transform::from_xyz(0.0, 0.0, 0.0),
+            ));
+
+            // 3. Triángulo derecho: Dirección hacia la salida
+            padre.spawn((
+                Mesh2d(malla_triangulo),
+                MeshMaterial2d(mat_cuerpo),
+                Transform::from_xyz(15.0, 0.0, 0.0),
+            ));
+
+            // 4. Conector de Salida en la punta del triángulo
+            padre.spawn(bundle_conector(
+                Vec3::new(33.0, 0.0, 0.2),
+                TipoConector::Salida,
+                config,
+            ))
+                .with_children(|con| {
+                    con.spawn(bundle_hueco(config));
+                });
         });
 }
