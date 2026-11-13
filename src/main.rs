@@ -3,11 +3,13 @@
 // ==========================================
 
 // --- Bloque 1: Importaciones y Módulos ---
+use crate::logica::*;
 use bevy::prelude::*;
-
 pub mod componentes;
 pub mod configuracion;
 pub mod lineas;
+pub mod logica;
+
 pub mod raton;
 
 use componentes::*;
@@ -15,7 +17,6 @@ use configuracion::ConfigApp;
 use lineas::*;
 use raton::*;
 
-// Fichero: src/main.rs
 // Bloque: Bloque 2: main
 fn main() {
     App::new()
@@ -27,7 +28,6 @@ fn main() {
             }),
             ..default()
         }))
-        // Inyectamos la configuración
         .init_resource::<ConfigApp>()
         .init_resource::<EstadoCrearLinea>()
         .init_state::<ModoApp>()
@@ -39,9 +39,13 @@ fn main() {
                 detectar_clic_nodo,
                 soltar_nodo,
                 mover_nodo_arrastrado,
-                // Registramos los dos nuevos sistemas de borrado
                 borrar_con_clic_derecho,
                 limpiar_cables_huerfanos,
+                // Cerebro lógico del circuito ---
+                propagar_cables,
+                evaluar_puertas,
+                actualizar_visuales_conectores,
+                // ------------------------------------------
                 dibuja_linea_temporal,
                 dibuja_cables_permanentes,
             )
@@ -49,20 +53,40 @@ fn main() {
         )
         .run();
 }
-// Fichero: src/main.rs
+
 // Bloque: Bloque 3: Setup del Entorno
-fn setup_entorno(mut commands: Commands, config: Res<ConfigApp>) {
+fn setup_entorno(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    config: Res<ConfigApp>,
+) {
     commands.spawn((Camera2d, CamaraPrincipal));
 
-    // Instanciamos una puerta AND
+    // Creamos dos interruptores de entrada a la izquierda
+    crear_interruptor(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        Vec2::new(-300.0, 50.0),
+        &config,
+    );
+    crear_interruptor(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        Vec2::new(-300.0, -50.0),
+        &config,
+    );
+
+    // Instanciamos una puerta AND y una OR
     crear_puerta(
         &mut commands,
-        Vec2::new(-150.0, 0.0),
+        Vec2::new(-50.0, 0.0),
         TipoPuerta::And,
         &config,
     );
 
-    // Instanciamos una puerta OR
     crear_puerta(
         &mut commands,
         Vec2::new(150.0, 50.0),
@@ -70,15 +94,47 @@ fn setup_entorno(mut commands: Commands, config: Res<ConfigApp>) {
         &config,
     );
 }
-
+// ==========================================
 // Fichero: src/main.rs
-// Bloque: Bloque 4: Creador de Puertas
+// Bloque: Bloque 4: Creador de Puertas y Conectores
+// ==========================================
+fn bundle_conector(
+    pos: Vec3,
+    tipo: TipoConector,
+    config: &ConfigApp,
+) -> (Sprite, Transform, TipoConector, ValorSeñal) {
+    (
+        Sprite {
+            color: config.col_con_hueco,
+            custom_size: Some(config.tam_conector),
+            ..default()
+        },
+        Transform::from_translation(pos),
+        tipo,
+        ValorSeñal(false),
+    )
+}
+
+fn bundle_hueco(config: &ConfigApp) -> (Sprite, Transform, CentroHueco) {
+    // Cuadrado interior oscuro que hace que el conector se vea "hueco"
+    (
+        Sprite {
+            color: Color::srgb(0.1, 0.1, 0.1),
+            custom_size: Some(config.tam_conector - Vec2::splat(4.0)),
+            ..default()
+        },
+        Transform::from_xyz(0.0, 0.0, 0.1),
+        CentroHueco,
+    )
+}
+
 fn crear_puerta(commands: &mut Commands, pos: Vec2, tipo_puerta: TipoPuerta, config: &ConfigApp) {
     // Escogemos el texto según el tipo
     let texto = match tipo_puerta {
         TipoPuerta::And => "AND",
         TipoPuerta::Or => "OR",
         TipoPuerta::Not => "NOT",
+        TipoPuerta::Interruptor => "IN",
     };
 
     commands
@@ -93,7 +149,6 @@ fn crear_puerta(commands: &mut Commands, pos: Vec2, tipo_puerta: TipoPuerta, con
             NodoLogico { tipo: tipo_puerta },
         ))
         .with_children(|padre| {
-            // Texto central identificativo
             padre.spawn((
                 Text2d::new(texto),
                 TextFont {
@@ -101,40 +156,110 @@ fn crear_puerta(commands: &mut Commands, pos: Vec2, tipo_puerta: TipoPuerta, con
                     ..default()
                 },
                 TextColor(Color::WHITE),
+                // Z=0.2 para que el texto quede por encima del bloque
                 Transform::from_xyz(0.0, 0.0, 0.2),
             ));
 
-            // Conector de Entrada 1 (Superior izquierda)
+            // Entrada 1 (Superior izquierda)
+            padre
+                .spawn(bundle_conector(
+                    Vec3::new(-config.tam_puerta.x / 2.0, 15.0, 0.1),
+                    TipoConector::Entrada,
+                    config,
+                ))
+                .with_children(|con| {
+                    con.spawn(bundle_hueco(config));
+                });
+
+            // Entrada 2 (Inferior izquierda)
+            padre
+                .spawn(bundle_conector(
+                    Vec3::new(-config.tam_puerta.x / 2.0, -15.0, 0.1),
+                    TipoConector::Entrada,
+                    config,
+                ))
+                .with_children(|con| {
+                    con.spawn(bundle_hueco(config));
+                });
+
+            // Salida (Centro derecha)
+            padre
+                .spawn(bundle_conector(
+                    Vec3::new(config.tam_puerta.x / 2.0, 0.0, 0.1),
+                    TipoConector::Salida,
+                    config,
+                ))
+                .with_children(|con| {
+                    con.spawn(bundle_hueco(config));
+                });
+        });
+}
+
+// ==========================================
+// Fichero: src/main.rs
+// Bloque: Bloque 5: Creador de Interruptores
+// ==========================================
+fn crear_interruptor(
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<ColorMaterial>>,
+    pos: Vec2,
+    config: &ConfigApp,
+) {
+    // Malla triangular apuntando a la derecha
+    let malla_triangulo = meshes.add(Triangle2d::new(
+        Vec2::new(0.0, 15.0),
+        Vec2::new(0.0, -15.0),
+        Vec2::new(18.0, 0.0),
+    ));
+    let mat_cuerpo = materials.add(config.col_puerta);
+
+    commands
+        .spawn((
+            Transform::from_xyz(pos.x, pos.y, 1.0),
+            Visibility::default(),
+            NodoLogico {
+                tipo: TipoPuerta::Interruptor,
+            },
+        ))
+        .with_children(|padre| {
+            // 1. Primer cuadrado (Izquierda): Botón para alternar 0 (Rojo) y 1 (Verde)
             padre.spawn((
                 Sprite {
-                    color: config.col_con_ent,
-                    custom_size: Some(config.tam_conector),
+                    color: config.col_estado_0,
+                    custom_size: Some(Vec2::new(26.0, 26.0)),
                     ..default()
                 },
-                Transform::from_xyz(-config.tam_puerta.x / 2.0, 15.0, 0.1),
-                TipoConector::Entrada,
+                Transform::from_xyz(-28.0, 0.0, 0.1),
+                BotonInterruptor { estado: false },
             ));
 
-            // Conector de Entrada 2 (Inferior izquierda)
+            // 2. Segundo cuadrado (Centro, junto al primero): Cuerpo para moverlo
             padre.spawn((
                 Sprite {
-                    color: config.col_con_ent,
-                    custom_size: Some(config.tam_conector),
+                    color: config.col_puerta,
+                    custom_size: Some(Vec2::new(30.0, 30.0)),
                     ..default()
                 },
-                Transform::from_xyz(-config.tam_puerta.x / 2.0, -15.0, 0.1),
-                TipoConector::Entrada,
+                Transform::from_xyz(0.0, 0.0, 0.0),
             ));
 
-            // Conector de Salida (Centro derecha)
+            // 3. Triángulo (Derecha, pegado al segundo cuadrado): Parte del cuerpo
             padre.spawn((
-                Sprite {
-                    color: config.col_con_sal,
-                    custom_size: Some(config.tam_conector),
-                    ..default()
-                },
-                Transform::from_xyz(config.tam_puerta.x / 2.0, 0.0, 0.1),
-                TipoConector::Salida,
+                Mesh2d(malla_triangulo),
+                MeshMaterial2d(mat_cuerpo),
+                Transform::from_xyz(15.0, 0.0, 0.0),
             ));
+
+            // 4. Conector de Salida en la punta del triángulo
+            padre
+                .spawn(bundle_conector(
+                    Vec3::new(33.0, 0.0, 0.2),
+                    TipoConector::Salida,
+                    config,
+                ))
+                .with_children(|con| {
+                    con.spawn(bundle_hueco(config));
+                });
         });
 }
