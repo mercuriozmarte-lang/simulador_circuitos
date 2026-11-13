@@ -10,11 +10,11 @@ pub mod configuracion;
 pub mod lineas;
 pub mod logica;
 pub mod raton;
-
 use componentes::*;
-use configuracion::ConfigApp;
+use componentes::*;
 use lineas::*;
 use logica::*;
+use configuracion::ConfigApp;
 use raton::*;
 
 // --- Bloque 2: main ---
@@ -40,7 +40,7 @@ fn main() {
                 detectar_clic_nodo,
                 soltar_nodo,
                 mover_nodo_arrastrado,
-                // Sistemas de borrado
+                // Sistemas de borrado y menú contextual
                 borrar_con_clic_derecho,
                 limpiar_cables_huerfanos,
                 // Cerebro lógico del circuito
@@ -96,7 +96,7 @@ fn setup_entorno(
         &config,
     );
 
-    // NUEVO: Instanciamos una puerta NOT de una sola entrada
+    // Instanciamos una puerta NOT de una sola entrada
     crear_puerta(
         &mut commands,
         Vec2::new(-50.0, -100.0),
@@ -115,7 +115,7 @@ fn setup_entorno(
 }
 
 // --- Bloque 4: Creador de Puertas y Conectores ---
-fn bundle_conector(
+pub fn bundle_conector(
     pos: Vec3,
     tipo: TipoConector,
     config: &ConfigApp,
@@ -132,7 +132,7 @@ fn bundle_conector(
     )
 }
 
-fn bundle_hueco(config: &ConfigApp) -> (Sprite, Transform, CentroHueco) {
+pub fn bundle_hueco(config: &ConfigApp) -> (Sprite, Transform, CentroHueco) {
     // Cuadrado interior oscuro que hace que el conector se vea "hueco"
     (
         Sprite {
@@ -145,7 +145,12 @@ fn bundle_hueco(config: &ConfigApp) -> (Sprite, Transform, CentroHueco) {
     )
 }
 
-fn crear_puerta(commands: &mut Commands, pos: Vec2, tipo_puerta: TipoPuerta, config: &ConfigApp) {
+pub fn crear_puerta(
+    commands: &mut Commands,
+    pos: Vec2,
+    tipo_puerta: TipoPuerta,
+    config: &ConfigApp,
+) {
     // Escogemos el texto según el tipo
     let texto = match tipo_puerta {
         TipoPuerta::And => "AND",
@@ -227,7 +232,7 @@ fn crear_puerta(commands: &mut Commands, pos: Vec2, tipo_puerta: TipoPuerta, con
 }
 
 // --- Bloque 5: Creador de Interruptores ---
-fn crear_interruptor(
+pub fn crear_interruptor(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<ColorMaterial>>,
@@ -293,7 +298,7 @@ fn crear_interruptor(
 }
 
 // --- Bloque 6: Creador de LEDs de Salida ---
-fn crear_led(
+pub fn crear_led(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<ColorMaterial>>,

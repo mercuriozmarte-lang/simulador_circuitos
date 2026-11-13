@@ -74,3 +74,15 @@ pub struct Cable {
 // Bloque: Bloque 6: Estado lógico de los conectores (NUEVO)
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct ValorSeñal(pub bool);
+
+// Bloque: Bloque 7: Componentes del Menú Contextual
+#[derive(Component)]
+pub struct MenuContextual {
+    // Guardamos dónde se hizo clic derecho para crear ahí la pieza
+    pub pos_creacion: Vec2,
+}
+
+#[derive(Component)]
+pub struct BotonMenu {
+    pub tipo: TipoPuerta,
+}
