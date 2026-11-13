@@ -5,25 +5,22 @@
 // --- Bloque 1: Importaciones ---
 use bevy::prelude::*;
 
-// --- Bloque 2: Estados ---
-#[derive(States, Debug, Clone, Copy, Eq, PartialEq, Hash, Default)]
+// --- Bloque 2: Estados de la Aplicación ---
+#[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum ModoApp {
     #[default]
     Edicion,
     CreandoLinea,
 }
 
-// --- Bloque 3: Recursos ---
+// --- Bloque 3: Recursos Globales ---
 #[derive(Resource, Default)]
 pub struct EstadoCrearLinea {
     pub origen_entidad: Option<Entity>,
     pub origen_pos: Vec2,
 }
 
-// ==========================================
-// Fichero: src/componentes.rs
-// Bloque: Bloque 4: Componentes de Nodos
-// ==========================================
+// --- Bloque 4: Componentes de Nodos ---
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TipoPuerta {
     And,
@@ -35,9 +32,9 @@ pub enum TipoPuerta {
     Led,
     // Generador de pulsos de reloj
     Reloj,
-    // NUEVO: Display de 7 segmentos con 7 entradas directas (A..G)
+    // Display de 7 segmentos con 7 entradas directas (A..G)
     Display7Seg,
-    // NUEVO: Display de 7 segmentos con decodificador de 4 bits (8, 4, 2, 1)
+    // Display de 7 segmentos con decodificador de 4 bits (8, 4, 2, 1)
     Display4Bits,
 }
 
@@ -69,11 +66,11 @@ pub struct TextoReloj;
 #[derive(Component)]
 pub struct IndicadorLed;
 
-// NUEVO: Identifica el número de patilla de entrada (0, 1, 2...)
+// Identifica el número de patilla de entrada (0, 1, 2...)
 #[derive(Component)]
 pub struct PinEntrada(pub usize);
 
-// NUEVO: Identifica cada uno de los 7 segmentos luminosos (0 = A ... 6 = G)
+// Identifica cada uno de los 7 segmentos luminosos (0 = A ... 6 = G)
 #[derive(Component)]
 pub struct SegmentoDisplay(pub usize);
 
@@ -87,31 +84,57 @@ pub struct Arrastrando;
 #[derive(Component)]
 pub struct CamaraPrincipal;
 
-// --- Bloque 5: Componentes de Conexión ---
-#[derive(Component, PartialEq, Eq)]
+// --- Bloque 5: Componentes de Conectores ---
+#[derive(Component, PartialEq, Eq, Clone, Copy)]
 pub enum TipoConector {
     Entrada,
     Salida,
 }
 
+// Almacena el estado lógico actual (true = 1, false = 0)
+#[derive(Component)]
+pub struct ValorSeñal(pub bool);
+
+// --- Bloque 6: Componentes de Cables ---
 #[derive(Component)]
 pub struct Cable {
     pub origen: Entity,
     pub destino: Entity,
 }
 
-// Bloque: Bloque 6: Estado lógico de los conectores (NUEVO)
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub struct ValorSeñal(pub bool);
-
-// Bloque: Bloque 7: Componentes del Menú Contextual
+// --- Bloque 7: Componentes del Menú Contextual ---
 #[derive(Component)]
 pub struct MenuContextual {
     // Guardamos dónde se hizo clic derecho para crear ahí la pieza
     pub pos_creacion: Vec2,
 }
 
+// Identifica la columna secundaria del submenú y recuerda su categoría activa
+#[derive(Component)]
+pub struct SubMenuContextual {
+    pub categoria: CategoriaMenu,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CategoriaMenu {
+    Puertas,
+    Entradas,
+    Salidas,
+    Archivo,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AccionMenu {
+    AbrirCategoria(CategoriaMenu),
+    CrearNodo(TipoPuerta),
+    GuardarCircuito,
+    CargarCircuito,
+    LimpiarTodo,
+}
+
 #[derive(Component)]
 pub struct BotonMenu {
-    pub tipo: TipoPuerta,
+    pub accion: AccionMenu,
+    // Coordenada mundial directa del centro del botón para detección infalible
+    pub centro_mundo: Vec2,
 }
