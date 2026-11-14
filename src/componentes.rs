@@ -14,7 +14,10 @@ pub enum ModoApp {
 }
 
 
+// ==========================================
+// Fichero: src/componentes.rs
 // Bloque: Bloque 3: Recursos Globales
+// ==========================================
 #[derive(Resource, Default)]
 pub struct EstadoCrearLinea {
     pub origen_entidad: Option<Entity>,
@@ -29,13 +32,22 @@ pub struct CodoArrastrado {
     pub seleccion: Option<(Entity, usize)>,
 }
 
+// Pila que guarda (nombre_chip, contenido_serializado) al entrar a ver un Chip
+#[derive(Resource, Default)]
+pub struct PilaInspeccion {
+    pub niveles: Vec<(String, String)>,
+}
 
+// ==========================================
+// Fichero: src/componentes.rs
 // Bloque: Bloque 4: Componentes de Nodos y Barras de Chip
+// ==========================================
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TipoPuerta {
     And,
     Or,
     Not,
+    // Resto de puertas lógicas fundamentales
     Nand,
     Nor,
     Xor,
@@ -50,7 +62,7 @@ pub enum TipoPuerta {
     Display7Seg,
     // Display de 7 segmentos con decodificador de 4 bits (8, 4, 2, 1)
     Display4Bits,
-    // Chip personalizado cargado desde un fichero .cir
+    // Chip personalizado cargado desde un fichero .chp
     Chip,
 }
 
@@ -60,14 +72,14 @@ pub struct NodoLogico {
     pub tipo: TipoPuerta,
 }
 
-// NUEVO: Representa un nodo interno dentro de un Chip empaquetado
+// Representa un nodo interno dentro de un Chip empaquetado
 #[derive(Clone, Debug)]
 pub struct NodoInternoChip {
     pub cod_tipo: String,
     pub sub_chip: Option< Box<DatosChip> >,
 }
 
-// NUEVO: Estructura lógica interna de un Chip (nodos, cables y pines ordenados)
+// Estructura lógica interna de un Chip (nodos, cables y pines ordenados)
 #[derive(Clone, Debug, Default)]
 pub struct DatosChip {
     pub nombre: String,
@@ -80,11 +92,17 @@ pub struct DatosChip {
     pub pines_salida: Vec<usize>,
 }
 
-// NUEVO: Componente que lleva cada bloque Chip instanciado en pantalla
+// Componente que lleva cada bloque Chip instanciado en pantalla
 #[derive(Component, Clone)]
 pub struct InstanciaChip {
     pub datos: DatosChip,
     pub estados_nodos: Vec< Vec<bool> >,
+}
+
+// NUEVO: Pequeño botón dentro del Chip para entrar a ver su circuito interno
+#[derive(Component)]
+pub struct BotonVerInteriorChip {
+    pub archivo_chp: String,
 }
 
 // Identifica las dos barras laterales donde se pegan las patillas del Chip
@@ -124,7 +142,7 @@ pub struct IndicadorLed;
 #[derive(Component)]
 pub struct PinEntrada(pub usize);
 
-// NUEVO: Identifica el número de patilla de salida en un Chip (0, 1, 2...)
+// Identifica el número de patilla de salida en un Chip (0, 1, 2...)
 #[derive(Component)]
 pub struct PinSalida(pub usize);
 
@@ -192,7 +210,6 @@ pub enum AccionMenu {
     AbrirCategoria(CategoriaMenu),
     CrearNodo(TipoPuerta),
     AlternarBarrasChip,
-    // NUEVO: Guardar específicamente como Chip (.chp) para la barra inferior
     GuardarChip,
     GuardarCircuito,
     CargarCircuito,
@@ -240,3 +257,11 @@ pub struct BotonChipInferior {
     pub x_min: f32,
     pub x_max: f32,
 }
+
+// NUEVO: Barra superior flotante cuando estamos viendo el interior de un Chip
+#[derive(Component)]
+pub struct BarraSuperiorInspeccion;
+
+// NUEVO: Botón superior para regresar al circuito anterior de la pila
+#[derive(Component)]
+pub struct BotonVolverInspeccion;

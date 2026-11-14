@@ -21,7 +21,10 @@ use lineas::*;
 use logica::*;
 use archivo::*;
 
-// --- Bloque 2: main ---
+// ==========================================
+// Fichero: src/main.rs
+// Bloque: Bloque 2: main
+// ==========================================
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -32,10 +35,11 @@ fn main() {
             }),
             ..default()
         }))
-        // Inyectamos la configuración y recursos de ratón
+        // Inyectamos la configuración, recursos de ratón y pila de inspección
         .init_resource::<ConfigApp>()
         .init_resource::<EstadoCrearLinea>()
         .init_resource::<CodoArrastrado>()
+        .init_resource::<PilaInspeccion>()
         .init_state::<ModoApp>()
         .add_systems(Startup, setup_entorno)
         .add_systems(

@@ -18,12 +18,20 @@ use crate::{
     crear_chip_personalizado,
 };
 
-// --- Bloque 2: Eventos de Guardado y Carga con Nombre ---
+// --- Bloque 2: Eventos de Guardado, Carga e Inspección de Chips ---
 #[derive(Component)]
 pub struct PeticionGuardar(pub String);
 
 #[derive(Component)]
 pub struct PeticionCargar(pub String);
+
+// NUEVO: Petición para entrar a ver el interior de un archivo .chp
+#[derive(Component)]
+pub struct PeticionEntrarChip(pub String);
+
+// NUEVO: Petición para volver al circuito anterior de la pila
+#[derive(Component)]
+pub struct PeticionSalirChip;
 
 // --- Bloque 3: Creador del Cuadro de Diálogo (.cir o .chp) ---
 pub fn abrir_dialogo_archivo(
@@ -348,10 +356,18 @@ pub fn gestionar_teclado_archivo(
     }
 }
 
-// --- Bloque 7: Sistema de Guardado y Carga en Fichero ---
+// ==========================================
+// Fichero: src/archivo.rs
+// Bloque: Bloque 7: Sistema de Guardado, Carga e Inspección de Chips
+// ==========================================
 pub fn procesar_guardado_y_carga(
-    q_guardar: Query<(Entity, &PeticionGuardar)>,
-    q_cargar: Query<(Entity, &PeticionCargar)>,
+    // Agrupamos las 4 peticiones en una tupla para no superar los 16 parámetros de Bevy
+    peticiones: (
+        Query<(Entity, &PeticionGuardar)>,
+        Query<(Entity, &PeticionCargar)>,
+        Query<(Entity, &PeticionEntrarChip)>,
+        Query<Entity, With<PeticionSalirChip>>,
+    ),
     q_nodos: Query<(
         Entity, 
         &Transform, 
@@ -363,16 +379,20 @@ pub fn procesar_guardado_y_carga(
     q_cables: Query<(Entity, &Cable)>,
     q_barras: Query<Entity, With<BarraChip>>,
     q_barra_inf: Query<Entity, With<BarraInferiorChips>>,
+    q_barra_sup: Query<Entity, With<BarraSuperiorInspeccion>>,
     q_botones: Query<&BotonInterruptor>,
     q_relojes: Query<&ControlReloj>,
     q_conectores: Query<&TipoConector>,
     q_pines_in: Query<&PinEntrada>,
     q_pines_out: Query<&PinSalida>,
+    mut pila_inspeccion: ResMut<PilaInspeccion>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     config: Res<ConfigApp>,
 ) {
+    let (q_guardar, q_cargar, q_entrar, q_salir) = peticiones;
+
     // 1. Procesar Guardado si existe petición
     let mut archivo_guardar = None;
     for (ent, pet) in q_guardar.iter() {
@@ -391,13 +411,12 @@ pub fn procesar_guardado_y_carga(
             &q_pines_in,
             &q_pines_out,
         );
-        // Si se ha guardado un Chip (.chp), refrescamos la barra inferior
         if ruta.ends_with(".chp") {
             reconstruir_barra_inferior_chips(&mut commands, &q_barra_inf);
         }
     }
 
-    // 2. Procesar Carga si existe petición
+    // 2. Procesar Carga de fichero .cir si existe petición
     let mut archivo_cargar = None;
     for (ent, pet) in q_cargar.iter() {
         archivo_cargar = Some(pet.0.clone());
@@ -405,6 +424,12 @@ pub fn procesar_guardado_y_carga(
     }
 
     if let Some(ruta) = archivo_cargar {
+        pila_inspeccion.niveles.clear();
+        reconstruir_barra_superior_inspeccion(
+            &mut commands,
+            &q_barra_sup,
+            &pila_inspeccion,
+        );
         cargar_desde_disco(
             &ruta,
             &q_nodos,
@@ -416,11 +441,92 @@ pub fn procesar_guardado_y_carga(
             &config,
         );
     }
+
+    // 3. Procesar entrada al interior de un Chip ([VER])
+    let mut chip_a_inspeccionar = None;
+    for (ent, pet) in q_entrar.iter() {
+        chip_a_inspeccionar = Some(pet.0.clone());
+        commands.entity(ent).despawn();
+    }
+
+    if let Some(ruta_chp) = chip_a_inspeccionar {
+        // Buscamos el archivo .chp en minúsculas o mayúsculas
+        let contenido_chp = fs::read_to_string(&ruta_chp).or_else(|_| {
+            let mayus = ruta_chp
+                .strip_suffix(".chp")
+                .unwrap_or(&ruta_chp)
+                .to_uppercase();
+            fs::read_to_string(format!("{}.chp", mayus))
+        });
+
+        if let Ok(texto_chip) = contenido_chp {
+            // Guardamos una fotografía del circuito actual en la pila antes de entrar
+            let foto_actual = serializar_circuito_a_texto(
+                &q_nodos,
+                &q_cables,
+                &q_botones,
+                &q_relojes,
+                &q_conectores,
+                &q_pines_in,
+                &q_pines_out,
+            );
+            let nombre_chip = ruta_chp
+                .strip_suffix(".chp")
+                .unwrap_or(&ruta_chp)
+                .to_uppercase();
+
+            pila_inspeccion.niveles.push((nombre_chip, foto_actual));
+            reconstruir_barra_superior_inspeccion(
+                &mut commands,
+                &q_barra_sup,
+                &pila_inspeccion,
+            );
+
+            reconstruir_circuito_desde_texto(
+                &texto_chip,
+                &q_nodos,
+                &q_cables,
+                &q_barras,
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                &config,
+            );
+        } else {
+            println!("No se encontró el archivo del chip: {}", ruta_chp);
+        }
+    }
+
+    // 4. Procesar botón [< VOLVER] para regresar al circuito anterior
+    let mut quiere_salir = false;
+    for ent in q_salir.iter() {
+        quiere_salir = true;
+        commands.entity(ent).despawn();
+    }
+
+    if quiere_salir {
+        if let Some((_, foto_anterior)) = pila_inspeccion.niveles.pop() {
+            reconstruir_barra_superior_inspeccion(
+                &mut commands,
+                &q_barra_sup,
+                &pila_inspeccion,
+            );
+            reconstruir_circuito_desde_texto(
+                &foto_anterior,
+                &q_nodos,
+                &q_cables,
+                &q_barras,
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                &config,
+            );
+        }
+    }
 }
 
 // --- Bloque 8: Lógica de Serialización a Texto (con Pines de Chip) ---
-fn guardar_en_disco(
-    ruta_archivo: &str,
+pub fn serializar_circuito_a_texto(
     q_nodos: &Query<(
         Entity, 
         &Transform, 
@@ -435,7 +541,7 @@ fn guardar_en_disco(
     q_conectores: &Query<&TipoConector>,
     q_pines_in: &Query<&PinEntrada>,
     q_pines_out: &Query<&PinSalida>,
-) {
+) -> String {
     let mut lineas = Vec::new();
     let mut lista_nodos = Vec::new();
 
@@ -553,7 +659,36 @@ fn guardar_en_disco(
         }
     }
 
-    let contenido = lineas.join("\n");
+    lineas.join("\n")
+}
+
+fn guardar_en_disco(
+    ruta_archivo: &str,
+    q_nodos: &Query<(
+        Entity, 
+        &Transform, 
+        &NodoLogico, 
+        &Children, 
+        Option<&PegadoABarra>,
+        Option<&InstanciaChip>,
+    )>,
+    q_cables: &Query<(Entity, &Cable)>,
+    q_botones: &Query<&BotonInterruptor>,
+    q_relojes: &Query<&ControlReloj>,
+    q_conectores: &Query<&TipoConector>,
+    q_pines_in: &Query<&PinEntrada>,
+    q_pines_out: &Query<&PinSalida>,
+) {
+    let contenido = serializar_circuito_a_texto(
+        q_nodos,
+        q_cables,
+        q_botones,
+        q_relojes,
+        q_conectores,
+        q_pines_in,
+        q_pines_out,
+    );
+
     if let Err(err) = fs::write(ruta_archivo, contenido) {
         println!("Error al guardar {}: {}", ruta_archivo, err);
     } else {
@@ -562,8 +697,8 @@ fn guardar_en_disco(
 }
 
 // --- Bloque 9: Lógica de Lectura y Reconstrucción en Lienzo ---
-fn cargar_desde_disco(
-    ruta_archivo: &str,
+pub fn reconstruir_circuito_desde_texto(
+    contenido: &str,
     q_nodos: &Query<(
         Entity, 
         &Transform, 
@@ -579,11 +714,6 @@ fn cargar_desde_disco(
     materials: &mut ResMut<Assets<ColorMaterial>>,
     config: &ConfigApp,
 ) {
-    let Ok(contenido) = fs::read_to_string(ruta_archivo) else {
-        println!("No se encontró el fichero {}", ruta_archivo);
-        return;
-    };
-
     for (ent_nodo, _, _, _, _, _) in q_nodos.iter() {
         commands.entity(ent_nodo).despawn();
     }
@@ -718,9 +848,49 @@ fn cargar_desde_disco(
         }
     }
 
-    if necesita_barras && q_barras.is_empty() {
-        crear_barras_chip(commands);
+    if necesita_barras {
+        if q_barras.is_empty() {
+            crear_barras_chip(commands);
+        }
+    } else {
+        for ent_b in q_barras.iter() {
+            commands.entity(ent_b).despawn();
+        }
     }
+}
+
+fn cargar_desde_disco(
+    ruta_archivo: &str,
+    q_nodos: &Query<(
+        Entity, 
+        &Transform, 
+        &NodoLogico, 
+        &Children, 
+        Option<&PegadoABarra>,
+        Option<&InstanciaChip>,
+    )>,
+    q_cables: &Query<(Entity, &Cable)>,
+    q_barras: &Query<Entity, With<BarraChip>>,
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<ColorMaterial>>,
+    config: &ConfigApp,
+) {
+    let Ok(contenido) = fs::read_to_string(ruta_archivo) else {
+        println!("No se encontró el fichero {}", ruta_archivo);
+        return;
+    };
+
+    reconstruir_circuito_desde_texto(
+        &contenido,
+        q_nodos,
+        q_cables,
+        q_barras,
+        commands,
+        meshes,
+        materials,
+        config,
+    );
 
     println!("Circuito cargado correctamente desde {}", ruta_archivo);
 }
@@ -808,7 +978,7 @@ pub fn leer_datos_chip_desde_chp(ruta_archivo: &str) -> Option<DatosChip> {
     })
 }
 
-// --- Bloque 11: Barra Inferior Flotante de Chips (Solo archivos .chp) ---
+// --- Bloque 11: Barra Inferior Flotante de Chips y Barra Superior de Inspección ---
 pub fn reconstruir_barra_inferior_chips(
     commands: &mut Commands,
     q_barra_existente: &Query<Entity, With<BarraInferiorChips>>,
@@ -817,7 +987,6 @@ pub fn reconstruir_barra_inferior_chips(
         commands.entity(ent).despawn();
     }
 
-    // Ahora SOLO buscamos ficheros con extensión .chp
     let archivos_chp = listar_archivos_por_ext("chp");
     let mut chips_validos = Vec::new();
 
@@ -908,11 +1077,93 @@ pub fn reconstruir_barra_inferior_chips(
     });
 }
 
+// NUEVO: Construye la barra superior con el botón [< VOLVER] cuando estamos dentro de un Chip
+pub fn reconstruir_barra_superior_inspeccion(
+    commands: &mut Commands,
+    q_barra_sup: &Query<Entity, With<BarraSuperiorInspeccion>>,
+    pila: &PilaInspeccion,
+) {
+    for ent in q_barra_sup.iter() {
+        commands.entity(ent).despawn();
+    }
+
+    if pila.niveles.is_empty() {
+        return;
+    }
+
+    let ruta_migas: Vec<&str> = pila
+        .niveles
+        .iter()
+        .map(|(nom, _)| nom.as_str())
+        .collect();
+    let texto_ruta = format!(
+        "VIENDO INTERIOR DE: Principal > {}",
+        ruta_migas.join(" > ")
+    );
+
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(10.0),
+            left: Val::Px(16.0),
+            right: Val::Px(16.0),
+            height: Val::Px(44.0),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::FlexStart,
+            column_gap: Val::Px(16.0),
+            padding: UiRect::horizontal(Val::Px(14.0)),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.14, 0.10, 0.22, 0.94)),
+        BarraSuperiorInspeccion,
+    ))
+    .with_children(|barra| {
+        // Botón [< VOLVER] situado entre X = 30 y X = 190
+        barra.spawn((
+            Node {
+                width: Val::Px(160.0),
+                height: Val::Px(30.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.65, 0.25, 0.25)),
+            BotonVolverInspeccion,
+        ))
+        .with_children(|btn| {
+            btn.spawn((
+                Text::new("< VOLVER ATRÁS"),
+                TextFont {
+                    font_size: bevy::text::FontSize::Px(14.0),
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+            ));
+        });
+
+        barra.spawn((
+            Text::new(texto_ruta),
+            TextFont {
+                font_size: bevy::text::FontSize::Px(14.0),
+                ..default()
+            },
+            TextColor(Color::srgb(0.90, 0.85, 1.0)),
+        ));
+    });
+}
+
 pub fn gestionar_clic_barra_inferior(
     buttons: Res<ButtonInput<MouseButton>>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
     q_camera: Query<&Transform, With<CamaraPrincipal>>,
-    mut q_botones: Query<(&BotonChipInferior, &mut BackgroundColor)>,
+    mut q_botones_inf: Query<
+        (&BotonChipInferior, &mut BackgroundColor),
+        Without<BotonVolverInspeccion>,
+    >,
+    mut q_boton_volver: Query<
+        &mut BackgroundColor,
+        With<BotonVolverInspeccion>,
+    >,
     mut commands: Commands,
     config: Res<ConfigApp>,
 ) {
@@ -921,6 +1172,25 @@ pub fn gestionar_clic_barra_inferior(
         return;
     };
 
+    // 1. Comprobar clic en el botón superior [< VOLVER ATRÁS] (top: 10..54, x: 30..190)
+    for mut color_volver in q_boton_volver.iter_mut() {
+        let en_y_sup = pos_cursor.y >= 10.0 && pos_cursor.y <= 54.0;
+        let en_x_sup = pos_cursor.x >= 30.0 && pos_cursor.x <= 190.0;
+
+        if en_y_sup && en_x_sup {
+            if buttons.just_pressed(MouseButton::Left) {
+                *color_volver = BackgroundColor(Color::srgb(0.85, 0.40, 0.20));
+                commands.spawn(PeticionSalirChip);
+                return;
+            } else {
+                *color_volver = BackgroundColor(Color::srgb(0.80, 0.32, 0.32));
+            }
+        } else {
+            *color_volver = BackgroundColor(Color::srgb(0.65, 0.25, 0.25));
+        }
+    }
+
+    // 2. Comprobar clic en los botones de la barra inferior de Chips
     let alto_ventana = window.height();
     let dentro_franja_y = pos_cursor.y >= (alto_ventana - 56.0) 
         && pos_cursor.y <= (alto_ventana - 10.0);
@@ -930,7 +1200,7 @@ pub fn gestionar_clic_barra_inferior(
         .map(|t| t.translation.truncate())
         .unwrap_or(Vec2::ZERO);
 
-    for (btn_chip, mut color_fondo) in q_botones.iter_mut() {
+    for (btn_chip, mut color_fondo) in q_botones_inf.iter_mut() {
         let dentro_x = pos_cursor.x >= btn_chip.x_min 
             && pos_cursor.x <= btn_chip.x_max;
 

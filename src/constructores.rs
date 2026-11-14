@@ -857,7 +857,7 @@ pub fn crear_barras_chip(commands: &mut Commands) {
 
 // ==========================================
 // Fichero: src/constructores.rs
-// Bloque: Bloque 9: Creador de Chips Personalizados (NUEVO)
+// Bloque: Bloque 9: Creador de Chips Personalizados
 // ==========================================
 pub fn crear_chip_personalizado(
     commands: &mut Commands,
@@ -869,11 +869,11 @@ pub fn crear_chip_personalizado(
     let num_out = datos.pines_salida.len();
     let max_pines = num_in.max(num_out).max(1);
 
-    // Calculamos el tamaño de la carcasa según el número de patillas y largo del nombre
+    // Calculamos el tamaño de la carcasa dejando espacio abajo para el botón [VER]
     let ancho_texto = (datos.nombre.len() as f32 * 11.0).max(80.0);
-    let ancho_cuerpo = ancho_texto + 28.0;
+    let ancho_cuerpo = ancho_texto + 30.0;
     let separacion_pines = 24.0;
-    let alto_cuerpo = (max_pines as f32 * separacion_pines + 16.0).max(50.0);
+    let alto_cuerpo = (max_pines as f32 * separacion_pines + 28.0).max(62.0);
 
     // Inicializamos la memoria de estados de cada nodo interno del chip
     let mut estados_nodos = Vec::with_capacity(datos.nodos.len());
@@ -887,6 +887,7 @@ pub fn crear_chip_personalizado(
     }
 
     let nombre_mostrar = datos.nombre.clone();
+    let archivo_chp = format!("{}.chp", datos.nombre.to_lowercase());
     let mut salidas_ent = Vec::new();
     let mut entradas_ent = Vec::new();
 
@@ -904,18 +905,41 @@ pub fn crear_chip_personalizado(
         },
     ))
     .with_children(|padre| {
-        // Texto con el nombre del Chip en el centro
+        // 1. Texto con el nombre del Chip ligeramente arriba del centro
         padre.spawn((
             Text2d::new(nombre_mostrar),
             TextFont {
-                font_size: bevy::text::FontSize::Px(16.0),
+                font_size: bevy::text::FontSize::Px(15.0),
                 ..default()
             },
             TextColor(Color::WHITE),
-            Transform::from_xyz(0.0, 0.0, 0.2),
+            Transform::from_xyz(0.0, 9.0, 0.2),
         ));
 
-        // Conectores de Entrada en el lado izquierdo (ordenados de arriba a abajo)
+        // 2. Pequeño botón [VER] en la parte baja del Chip para ver su interior
+        let y_btn = -alto_cuerpo / 2.0 + 12.0;
+        padre.spawn((
+            Sprite {
+                color: Color::srgb(0.10, 0.18, 0.28),
+                custom_size: Some(Vec2::new(42.0, 16.0)),
+                ..default()
+            },
+            Transform::from_xyz(0.0, y_btn, 0.2),
+            BotonVerInteriorChip { archivo_chp },
+        ))
+        .with_children(|btn| {
+            btn.spawn((
+                Text2d::new("VER"),
+                TextFont {
+                    font_size: bevy::text::FontSize::Px(10.0),
+                    ..default()
+                },
+                TextColor(Color::srgb(0.65, 0.90, 1.0)),
+                Transform::from_xyz(0.0, 0.0, 0.1),
+            ));
+        });
+
+        // 3. Conectores de Entrada en el lado izquierdo
         let inicio_in_y = 
             ((num_in.saturating_sub(1)) as f32 * separacion_pines) / 2.0;
         for i in 0..num_in {
@@ -935,7 +959,7 @@ pub fn crear_chip_personalizado(
             entradas_ent.push(e_in);
         }
 
-        // Conectores de Salida en el lado derecho (ordenados de arriba a abajo)
+        // 4. Conectores de Salida en el lado derecho
         let inicio_out_y = 
             ((num_out.saturating_sub(1)) as f32 * separacion_pines) / 2.0;
         for i in 0..num_out {

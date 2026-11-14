@@ -1,8 +1,7 @@
 // ==========================================
 // Fichero: src/raton.rs
+// Bloque: Bloque 1: Importaciones
 // ==========================================
-
-// --- Bloque 1: Importaciones ---
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use crate::componentes::*;
@@ -10,6 +9,7 @@ use crate::configuracion::ConfigApp;
 use crate::archivo::{
     abrir_dialogo_archivo, 
     abrir_selector_carga,
+    PeticionEntrarChip,
 };
 use crate::{
     crear_puerta, 
@@ -222,7 +222,10 @@ pub fn gestionar_clic_menu(
     }
 }
 
-// --- Bloque 2B: Clic en Nodos, Conectores y Codos de Cable ---
+// ==========================================
+// Fichero: src/raton.rs
+// Bloque: Bloque 2B: Clic en Nodos, Conectores y Codos de Cable
+// ==========================================
 pub fn detectar_clic_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
@@ -243,14 +246,18 @@ pub fn detectar_clic_nodo(
         (Entity, &GlobalTransform, &TipoConector)
     >,
     q_cables: Query<(Entity, &Cable)>,
-    mut q_botones: Query<
-        (&GlobalTransform, &mut BotonInterruptor, &mut Sprite),
-        Without<ControlReloj>,
-    >,
-    mut q_relojes: Query<
-        (&GlobalTransform, &mut ControlReloj, &mut Sprite, &Children),
-        Without<BotonInterruptor>,
-    >,
+    // Agrupamos los controles interactivos en tupla para no pasar de 16 parámetros
+    mut controles_nodos: (
+        Query<
+            (&GlobalTransform, &mut BotonInterruptor, &mut Sprite),
+            Without<ControlReloj>,
+        >,
+        Query<
+            (&GlobalTransform, &mut ControlReloj, &mut Sprite, &Children),
+            Without<BotonInterruptor>,
+        >,
+        Query<(&GlobalTransform, &BotonVerInteriorChip)>,
+    ),
     mut q_textos_reloj: Query<&mut Text2d, With<TextoReloj>>,
     estado_app: Res<State<ModoApp>>,
     mut estado_linea: ResMut<EstadoCrearLinea>,
@@ -279,6 +286,17 @@ pub fn detectar_clic_nodo(
     ) else {
         return;
     };
+
+    // Ignoramos clics sobre el lienzo si el ratón está en la barra inferior de Chips
+    if pos_pantalla.y >= (window.height() - 56.0) {
+        return;
+    }
+
+    let (
+        mut q_botones, 
+        mut q_relojes, 
+        q_botones_ver_chip
+    ) = controles_nodos;
 
     // MODO CREANDO LÍNEA: Añadir codo o finalizar cable en una Entrada
     if *estado_app.get() == ModoApp::CreandoLinea {
@@ -334,7 +352,7 @@ pub fn detectar_clic_nodo(
         }
     }
 
-    // 1B. NUEVO: Clic sobre una esquina (codo) de un cable ya creado para moverla
+    // 1B. Clic sobre una esquina (codo) de un cable ya creado para moverla
     for (ent_cable, cable) in q_cables.iter() {
         for (idx, &pos_codo) in cable.puntos_intermedios.iter().enumerate() {
             if pos_mundo.distance(pos_codo) < 10.0 {
@@ -386,6 +404,17 @@ pub fn detectar_clic_nodo(
         }
     }
 
+    // 2C. Prioridad 2C: Clic en el pequeño botón [VER] de un Chip
+    for (g_trf, btn_ver) in q_botones_ver_chip.iter() {
+        let pos_btn = g_trf.translation().truncate();
+        if (pos_mundo.x - pos_btn.x).abs() < 21.0 
+            && (pos_mundo.y - pos_btn.y).abs() < 9.0 
+        {
+            commands.spawn(PeticionEntrarChip(btn_ver.archivo_chp.clone()));
+            return;
+        }
+    }
+
     // 3. Prioridad 3: Clic en el cuerpo del nodo para arrastrarlo
     for (entidad, trf) in q_nodos.iter() {
         let centro_nodo = trf.translation.truncate();
@@ -395,7 +424,6 @@ pub fn detectar_clic_nodo(
         }
     }
 }
-
 // --- Bloque 3: Soltar Ratón, Codos e Imantar a Barras de Chip ---
 pub fn soltar_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
