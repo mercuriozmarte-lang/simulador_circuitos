@@ -43,10 +43,7 @@ pub fn bundle_hueco(
 }
 
 
-// ==========================================
-// Fichero: src/constructores.rs
 // Bloque: Bloque 3: Creador de Puertas Lógicas Vectoriales
-// ==========================================
 use bevy::render::mesh::{Indices, PrimitiveTopology};
 use bevy::asset::RenderAssetUsages;
 
@@ -856,4 +853,108 @@ pub fn crear_barras_chip(commands: &mut Commands) {
             Transform::from_xyz(0.0, alto_barra / 2.0 + 16.0, 0.1),
         ));
     });
+}
+
+// ==========================================
+// Fichero: src/constructores.rs
+// Bloque: Bloque 9: Creador de Chips Personalizados (NUEVO)
+// ==========================================
+pub fn crear_chip_personalizado(
+    commands: &mut Commands,
+    pos: Vec2,
+    datos: DatosChip,
+    config: &ConfigApp,
+) -> (Vec<Entity>, Vec<Entity>) {
+    let num_in = datos.pines_entrada.len();
+    let num_out = datos.pines_salida.len();
+    let max_pines = num_in.max(num_out).max(1);
+
+    // Calculamos el tamaño de la carcasa según el número de patillas y largo del nombre
+    let ancho_texto = (datos.nombre.len() as f32 * 11.0).max(80.0);
+    let ancho_cuerpo = ancho_texto + 28.0;
+    let separacion_pines = 24.0;
+    let alto_cuerpo = (max_pines as f32 * separacion_pines + 16.0).max(50.0);
+
+    // Inicializamos la memoria de estados de cada nodo interno del chip
+    let mut estados_nodos = Vec::with_capacity(datos.nodos.len());
+    for n in datos.nodos.iter() {
+        let num_salidas = if let Some(sub) = &n.sub_chip {
+            sub.pines_salida.len().max(1)
+        } else {
+            1
+        };
+        estados_nodos.push(vec![false; num_salidas]);
+    }
+
+    let nombre_mostrar = datos.nombre.clone();
+    let mut salidas_ent = Vec::new();
+    let mut entradas_ent = Vec::new();
+
+    commands.spawn((
+        Sprite {
+            color: Color::srgb(0.18, 0.32, 0.48),
+            custom_size: Some(Vec2::new(ancho_cuerpo, alto_cuerpo)),
+            ..default()
+        },
+        Transform::from_xyz(pos.x, pos.y, 1.0),
+        NodoLogico { tipo: TipoPuerta::Chip },
+        InstanciaChip {
+            datos,
+            estados_nodos,
+        },
+    ))
+    .with_children(|padre| {
+        // Texto con el nombre del Chip en el centro
+        padre.spawn((
+            Text2d::new(nombre_mostrar),
+            TextFont {
+                font_size: bevy::text::FontSize::Px(16.0),
+                ..default()
+            },
+            TextColor(Color::WHITE),
+            Transform::from_xyz(0.0, 0.0, 0.2),
+        ));
+
+        // Conectores de Entrada en el lado izquierdo (ordenados de arriba a abajo)
+        let inicio_in_y = 
+            ((num_in.saturating_sub(1)) as f32 * separacion_pines) / 2.0;
+        for i in 0..num_in {
+            let y = inicio_in_y - (i as f32 * separacion_pines);
+            let e_in = padre.spawn((
+                bundle_conector(
+                    Vec3::new(-ancho_cuerpo / 2.0, y, 0.1),
+                    TipoConector::Entrada,
+                    config,
+                ),
+                PinEntrada(i),
+            ))
+            .with_children(|con| {
+                con.spawn(bundle_hueco(config));
+            })
+            .id();
+            entradas_ent.push(e_in);
+        }
+
+        // Conectores de Salida en el lado derecho (ordenados de arriba a abajo)
+        let inicio_out_y = 
+            ((num_out.saturating_sub(1)) as f32 * separacion_pines) / 2.0;
+        for i in 0..num_out {
+            let y = inicio_out_y - (i as f32 * separacion_pines);
+            let e_out = padre.spawn((
+                bundle_conector(
+                    Vec3::new(ancho_cuerpo / 2.0, y, 0.1),
+                    TipoConector::Salida,
+                    config,
+                ),
+                PinSalida(i),
+            ))
+            .with_children(|con| {
+                con.spawn(bundle_hueco(config));
+            })
+            .id();
+            salidas_ent.push(e_out);
+        }
+    });
+
+    (salidas_ent, entradas_ent)
 }

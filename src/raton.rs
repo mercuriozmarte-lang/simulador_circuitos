@@ -182,6 +182,7 @@ pub fn gestionar_clic_menu(
                             &config,
                         );
                     }
+                    TipoPuerta::Chip => {}
                 }
             }
             AccionMenu::AlternarBarrasChip => {
@@ -193,8 +194,13 @@ pub fn gestionar_clic_menu(
                     }
                 }
             }
-            AccionMenu::GuardarCircuito => {
+            AccionMenu::GuardarChip => {
+                // true = Guardar como Chip (.chp)
                 abrir_dialogo_archivo(&mut commands, true);
+            }
+            AccionMenu::GuardarCircuito => {
+                // false = Guardar como Circuito (.cir)
+                abrir_dialogo_archivo(&mut commands, false);
             }
             AccionMenu::CargarCircuito => {
                 abrir_selector_carga(&mut commands);
@@ -662,7 +668,10 @@ pub fn borrar_con_clic_derecho(
     }
 }
 
-// --- Bloque 6: Creador del Menú Principal y Submenús ---
+// ==========================================
+// Fichero: src/raton.rs
+// Bloque: Bloque 6: Creador del Menú Principal y Submenús
+// ==========================================
 fn abrir_menu_contextual(
     commands: &mut Commands, 
     pos: Vec2
@@ -750,6 +759,7 @@ fn abrir_submenu(
         ],
         CategoriaMenu::Chip => vec![
             ("Barras I/O", AccionMenu::AlternarBarrasChip),
+            ("Guardar .chp", AccionMenu::GuardarChip),
         ],
         CategoriaMenu::Archivo => vec![
             ("Guardar .cir", AccionMenu::GuardarCircuito),

@@ -24,12 +24,9 @@ pub fn propagar_cables(
 
     // 2. Copiamos el valor desde el origen al destino en los cables activos
     for cable in q_cables.iter() {
-        // Obtenemos el valor de la salida origen y se lo pasamos a la entrada destino
-        // 1. Leemos y copiamos el booleano (el préstamo inmutable termina en esta línea)
         if let Ok(val_origen) = q_valores.get(cable.origen) {
             let estado_copiado = val_origen.0;
             
-            // 2. Ahora pedimos el préstamo mutable sin conflictos de memoria
             if let Ok(mut val_destino) = q_valores.get_mut(cable.destino) {
                 val_destino.0 = estado_copiado;
             }
@@ -37,17 +34,18 @@ pub fn propagar_cables(
     }
 }
 
-// --- Bloque 3: Evaluación de Puertas Lógicas ---
+// --- Bloque 3: Evaluación de Puertas Lógicas y Chips ---
 pub fn evaluar_puertas(
-    q_puertas: Query<(Entity, &NodoLogico), With<NodoLogico>>,
+    mut q_puertas: Query<
+        (Entity, &NodoLogico, Option<&mut InstanciaChip>), 
+        With<NodoLogico>
+    >,
     q_children: Query<&Children>,
     q_botones: Query<&BotonInterruptor>,
-    // Consultamos el estado de los relojes
     q_relojes: Query<&ControlReloj>,
-    // Consultamos el índice de pin para entradas ordenadas
-    q_pines: Query<&PinEntrada>,
+    q_pines_in: Query<&PinEntrada>,
+    q_pines_out: Query<&PinSalida>,
     mut q_conectores: Query<(&TipoConector, &mut ValorSeñal)>,
-    // Consultamos el sprite del LED para iluminarlo
     mut q_leds: Query<
         &mut Sprite, 
         (
@@ -56,37 +54,34 @@ pub fn evaluar_puertas(
             Without<SegmentoDisplay>
         )
     >,
-    // Consultamos los 7 segmentos de los displays
     mut q_segmentos: Query<
         (&SegmentoDisplay, &mut Sprite),
         (Without<TipoConector>, Without<IndicadorLed>)
     >,
     config: Res<ConfigApp>,
 ) {
-    // Recorremos cada puerta lógica del circuito
-    for (entidad_puerta, puerta) in q_puertas.iter() {
+    for (entidad_puerta, puerta, opt_chip) in q_puertas.iter_mut() {
         let Ok(hijos) = q_children.get(entidad_puerta) else { 
             continue; 
         };
 
-        // Recopilamos los valores de todas las entradas de esta puerta
         let mut valores_entradas = Vec::new();
-        let mut entradas_ordenadas = [false; 8];
+        let mut entradas_ordenadas = vec![false; 16];
         let mut salidas = Vec::new();
         let mut leds = Vec::new();
         let mut segmentos = Vec::new();
         let mut estado_emisor = false;
 
-        // En Bevy 0.20, hijos.iter() entrega Entity directamente por valor
         for hijo in hijos.iter() {
             if let Ok((tipo, val)) = q_conectores.get(hijo) {
                 match tipo {
                     TipoConector::Entrada => {
                         valores_entradas.push(val.0);
-                        if let Ok(pin) = q_pines.get(hijo) {
-                            if pin.0 < 8 {
-                                entradas_ordenadas[pin.0] = val.0;
+                        if let Ok(pin) = q_pines_in.get(hijo) {
+                            if pin.0 >= entradas_ordenadas.len() {
+                                entradas_ordenadas.resize(pin.0 + 1, false);
                             }
+                            entradas_ordenadas[pin.0] = val.0;
                         }
                     }
                     TipoConector::Salida => {
@@ -94,25 +89,55 @@ pub fn evaluar_puertas(
                     }
                 }
             }
-            // Si el nodo tiene un botón interruptor hijo, leemos su estado
             if let Ok(boton) = q_botones.get(hijo) {
                 estado_emisor = boton.estado;
             }
-            // Si el nodo tiene un control de reloj hijo, leemos su pulso actual
             if let Ok(reloj) = q_relojes.get(hijo) {
                 estado_emisor = reloj.estado;
             }
-            // Si el hijo es la bombilla de un LED, guardamos su entidad
             if q_leds.contains(hijo) {
                 leds.push(hijo);
             }
-            // Si el hijo es un segmento de display, lo guardamos
             if q_segmentos.contains(hijo) {
                 segmentos.push(hijo);
             }
         }
 
-        // Calculamos el resultado según el tipo de puerta (¡soporta N entradas!)
+        // Si es un Chip empaquetado, evaluamos su circuito interno
+        if puerta.tipo == TipoPuerta::Chip {
+            if let Some(mut chip) = opt_chip {
+                let InstanciaChip { 
+                    ref datos, 
+                    ref mut estados_nodos 
+                } = *chip;
+
+                let resultados_chip = simular_red_chip(
+                    datos,
+                    estados_nodos,
+                    &entradas_ordenadas,
+                );
+
+                for id_salida in salidas {
+                    let idx_out = q_pines_out
+                        .get(id_salida)
+                        .map(|p| p.0)
+                        .unwrap_or(0);
+                    let val_pin = resultados_chip
+                        .get(idx_out)
+                        .copied()
+                        .unwrap_or(false);
+
+                    if let Ok((_, mut val_salida)) = 
+                        q_conectores.get_mut(id_salida) 
+                    {
+                        val_salida.0 = val_pin;
+                    }
+                }
+            }
+            continue;
+        }
+
+        // Calculamos el resultado según el tipo de puerta básica
         let resultado = match puerta.tipo {
             TipoPuerta::And => {
                 !valores_entradas.is_empty() 
@@ -153,19 +178,19 @@ pub fn evaluar_puertas(
             TipoPuerta::Led => {
                 valores_entradas.first().copied().unwrap_or(false)
             }
-            TipoPuerta::Display7Seg | TipoPuerta::Display4Bits => {
+            TipoPuerta::Display7Seg 
+            | TipoPuerta::Display4Bits 
+            | TipoPuerta::Chip => {
                 false
             }
         };
 
-        // Asignamos el resultado calculado al conector de salida de la puerta
         for id_salida in salidas {
             if let Ok((_, mut val_salida)) = q_conectores.get_mut(id_salida) {
                 val_salida.0 = resultado;
             }
         }
 
-        // Actualizamos el color de la bombilla si es un LED
         for id_led in leds {
             if let Ok(mut sprite_led) = q_leds.get_mut(id_led) {
                 if resultado {
@@ -176,7 +201,6 @@ pub fn evaluar_puertas(
             }
         }
 
-        // Actualizamos los 7 segmentos si es un Display
         if !segmentos.is_empty() {
             let mascara_seg: [bool; 7] = match puerta.tipo {
                 TipoPuerta::Display7Seg => [
@@ -189,7 +213,6 @@ pub fn evaluar_puertas(
                     entradas_ordenadas[6],
                 ],
                 TipoPuerta::Display4Bits => {
-                    // Pin 0 = Bit 8, Pin 1 = Bit 4, Pin 2 = Bit 2, Pin 3 = Bit 1
                     let mut valor_hex = 0u8;
                     if entradas_ordenadas[0] { valor_hex += 8; }
                     if entradas_ordenadas[1] { valor_hex += 4; }
@@ -214,6 +237,108 @@ pub fn evaluar_puertas(
             }
         }
     }
+}
+
+// Simula el interior de un Chip y devuelve el estado de sus pines de salida
+fn simular_red_chip(
+    datos: &DatosChip,
+    estados_nodos: &mut Vec< Vec<bool> >,
+    entradas_ext: &[bool],
+) -> Vec<bool> {
+    let n_nodos = datos.nodos.len();
+    if estados_nodos.len() != n_nodos {
+        *estados_nodos = vec![vec![false; 1]; n_nodos];
+    }
+
+    // 1. Inyectamos los valores de las patillas de entrada en los Interruptores anclados
+    for (idx_pin, &idx_nodo) in datos.pines_entrada.iter().enumerate() {
+        let v = entradas_ext.get(idx_pin).copied().unwrap_or(false);
+        if idx_nodo < estados_nodos.len() {
+            if estados_nodos[idx_nodo].is_empty() {
+                estados_nodos[idx_nodo].push(v);
+            } else {
+                estados_nodos[idx_nodo][0] = v;
+            }
+        }
+    }
+
+    // 2. Iteramos varias pasadas para que la señal atraviese todas las puertas internas
+    let pasadas = n_nodos.clamp(2, 12);
+    for _ in 0..pasadas {
+        for i in 0..n_nodos {
+            // Los interruptores de entrada mantienen el valor que viene del exterior
+            if datos.pines_entrada.contains(&i) {
+                continue;
+            }
+
+            // Recogemos los cables que entran al nodo i ordenados por patilla
+            let mut in_pines = vec![false; 8];
+            let mut max_pin = 0;
+            let mut tiene_cables = false;
+
+            for &(orig, pin_out, dest, pin_in) in datos.cables.iter() {
+                if dest == i {
+                    tiene_cables = true;
+                    if pin_in >= in_pines.len() {
+                        in_pines.resize(pin_in + 1, false);
+                    }
+                    if pin_in > max_pin {
+                        max_pin = pin_in;
+                    }
+                    let val_cable = estados_nodos
+                        .get(orig)
+                        .and_then(|salidas| salidas.get(pin_out))
+                        .copied()
+                        .unwrap_or(false);
+                    in_pines[pin_in] = val_cable;
+                }
+            }
+
+            let cod = datos.nodos[i].cod_tipo.as_str();
+
+            // Si este nodo interno es a su vez otro sub-chip, lo simulamos recursivamente
+            if let Some(sub) = &datos.nodos[i].sub_chip {
+                let mut mem_sub = vec![vec![false; 1]; sub.nodos.len()];
+                let sal_sub = simular_red_chip(sub, &mut mem_sub, &in_pines);
+                estados_nodos[i] = sal_sub;
+                continue;
+            }
+
+            let v0 = in_pines[0];
+            let v1 = in_pines[1];
+
+            let res = match cod {
+                "AND" => tiene_cables && v0 && v1,
+                "OR" => v0 || v1,
+                "NOT" => !v0,
+                "NAND" => !(tiene_cables && v0 && v1),
+                "NOR" => !(v0 || v1),
+                "XOR" => v0 ^ v1,
+                "XNOR" => !(v0 ^ v1),
+                "LED" => v0,
+                _ => false,
+            };
+
+            if estados_nodos[i].is_empty() {
+                estados_nodos[i].push(res);
+            } else {
+                estados_nodos[i][0] = res;
+            }
+        }
+    }
+
+    // 3. Recogemos el valor final de los LEDs pegados a la barra derecha
+    let mut salidas_finales = Vec::with_capacity(datos.pines_salida.len());
+    for &idx_led in datos.pines_salida.iter() {
+        let v = estados_nodos
+            .get(idx_led)
+            .and_then(|s| s.first())
+            .copied()
+            .unwrap_or(false);
+        salidas_finales.push(v);
+    }
+
+    salidas_finales
 }
 
 // Tabla de verdad para convertir un número de 0 a 15 (0..F) en 7 segmentos (A..G)
@@ -251,13 +376,10 @@ pub fn actualizar_visuales_conectores(
     config: Res<ConfigApp>,
 ) {
     for (ent_con, val, mut sprite, hijos) in q_conectores.iter_mut() {
-        // Comprobamos si este conector tiene algún cable enganchado
         let conectado = q_cables.iter().any(|c| {
             c.origen == ent_con || c.destino == ent_con
         });
 
-        // Si está conectado se rellena de verde (1) o rojo (0).
-        // Si NO está conectado, mostramos su centro oscuro para verlo "hueco".
         if conectado {
             if val.0 {
                 sprite.color = config.col_estado_1;
@@ -268,7 +390,6 @@ pub fn actualizar_visuales_conectores(
             sprite.color = config.col_con_hueco;
         }
 
-        // Usamos hijos.iter() para obtener Entity por valor sin referencias
         for hijo in hijos.iter() {
             if let Ok(mut vis) = q_huecos.get_mut(hijo) {
                 if conectado {
@@ -287,14 +408,12 @@ pub fn actualizar_relojes(
     mut q_relojes: Query<(&mut ControlReloj, &mut Sprite)>,
     config: Res<ConfigApp>,
 ) {
-    // Tabla de frecuencias disponibles en Hz (0.0 = Apagado)
     let frecuencias = [0.0, 1.0, 2.0, 5.0, 10.0];
     let dt = time.delta_secs();
 
     for (mut reloj, mut sprite) in q_relojes.iter_mut() {
         let frec = frecuencias[reloj.indice_frec];
 
-        // Si está en 0 Hz, se mantiene apagado en estado 0 (Rojo)
         if frec <= 0.0 {
             reloj.estado = false;
             reloj.acumulador = 0.0;
@@ -302,7 +421,6 @@ pub fn actualizar_relojes(
             continue;
         }
 
-        // Medio periodo para alternar entre flanco alto y bajo
         let semi_periodo = 0.5 / frec;
         reloj.acumulador += dt;
 

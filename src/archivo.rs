@@ -14,6 +14,8 @@ use crate::{
     crear_led,
     crear_reloj,
     crear_display,
+    crear_barras_chip,
+    crear_chip_personalizado,
 };
 
 // --- Bloque 2: Eventos de Guardado y Carga con Nombre ---
@@ -23,29 +25,38 @@ pub struct PeticionGuardar(pub String);
 #[derive(Component)]
 pub struct PeticionCargar(pub String);
 
-// --- Bloque 3: Creador del Cuadro de Diálogo (Guardar .cir) ---
+// --- Bloque 3: Creador del Cuadro de Diálogo (.cir o .chp) ---
 pub fn abrir_dialogo_archivo(
     commands: &mut Commands,
-    es_guardar: bool,
+    es_chip: bool,
 ) {
-    let titulo = "GUARDAR CIRCUITO .CIR (Enter = OK, Esc = Cancelar)";
-    let nombre_defecto = "circuito".to_string();
+    let (titulo, nombre_defecto, ext) = if es_chip {
+        (
+            "GUARDAR CHIP .CHP (Enter = OK, Esc = Cancelar)",
+            "mi_chip".to_string(),
+            ".chp",
+        )
+    } else {
+        (
+            "GUARDAR CIRCUITO .CIR (Enter = OK, Esc = Cancelar)",
+            "circuito".to_string(),
+            ".cir",
+        )
+    };
 
-    // Contenedor centrado en Z = 20.0 por encima de todo
     commands.spawn((
         Sprite {
             color: Color::srgb(0.10, 0.12, 0.16),
-            custom_size: Some(Vec2::new(440.0, 110.0)),
+            custom_size: Some(Vec2::new(460.0, 110.0)),
             ..default()
         },
         Transform::from_xyz(0.0, 0.0, 20.0),
         DialogoArchivo {
-            es_guardar,
+            es_chip,
             nombre: nombre_defecto.clone(),
         },
     ))
     .with_children(|padre| {
-        // Título superior de ayuda
         padre.spawn((
             Text2d::new(titulo),
             TextFont {
@@ -56,7 +67,6 @@ pub fn abrir_dialogo_archivo(
             Transform::from_xyz(0.0, 30.0, 0.1),
         ));
 
-        // Caja oscura de entrada de texto
         padre.spawn((
             Sprite {
                 color: Color::srgb(0.05, 0.05, 0.07),
@@ -66,8 +76,7 @@ pub fn abrir_dialogo_archivo(
             Transform::from_xyz(0.0, -12.0, 0.1),
         ));
 
-        // Texto que muestra lo que el usuario escribe + extensión .cir
-        let texto_inicial = format!("{}_.cir", nombre_defecto);
+        let texto_inicial = format!("{}_{}", nombre_defecto, ext);
         padre.spawn((
             Text2d::new(texto_inicial),
             TextFont {
@@ -83,27 +92,7 @@ pub fn abrir_dialogo_archivo(
 
 // --- Bloque 4: Selector Visual de Ficheros .cir para Cargar ---
 pub fn abrir_selector_carga(commands: &mut Commands) {
-    let mut archivos_cir = Vec::new();
-
-    // Leemos el directorio actual y filtramos por la extensión .cir
-    if let Ok(entradas) = fs::read_dir(".") {
-        for entrada in entradas.flatten() {
-            let ruta = entrada.path();
-            if ruta.is_file() {
-                if let Some(ext) = ruta.extension() {
-                    if ext == "cir" {
-                        if let Some(nom) = ruta.file_name() {
-                            if let Some(nom_str) = nom.to_str() {
-                                archivos_cir.push(nom_str.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    archivos_cir.sort();
+    let archivos_cir = listar_archivos_por_ext("cir");
 
     let ancho_btn = 280.0;
     let alto_btn = 32.0;
@@ -177,6 +166,29 @@ pub fn abrir_selector_carga(commands: &mut Commands) {
     });
 }
 
+// Lista los archivos del directorio filtrando por extensión ("cir" o "chp")
+pub fn listar_archivos_por_ext(extension_buscada: &str) -> Vec<String> {
+    let mut archivos = Vec::new();
+    if let Ok(entradas) = fs::read_dir(".") {
+        for entrada in entradas.flatten() {
+            let ruta = entrada.path();
+            if ruta.is_file() {
+                if let Some(ext) = ruta.extension() {
+                    if ext == extension_buscada {
+                        if let Some(nom) = ruta.file_name() {
+                            if let Some(nom_str) = nom.to_str() {
+                                archivos.push(nom_str.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    archivos.sort();
+    archivos
+}
+
 // --- Bloque 5: Interacción con la Lista de Ficheros .cir ---
 pub fn gestionar_clic_selector_carga(
     buttons: Res<ButtonInput<MouseButton>>,
@@ -194,7 +206,6 @@ pub fn gestionar_clic_selector_carga(
         return;
     };
 
-    // Cerrar con tecla Escape
     if keys.just_pressed(KeyCode::Escape) {
         commands.entity(ent_sel).despawn();
         return;
@@ -233,16 +244,14 @@ pub fn gestionar_clic_selector_carga(
         return;
     }
 
-    // Si hace clic izquierdo sobre un fichero .cir, lanzamos la petición de carga
     if let Some(nombre) = archivo_bajo_cursor {
         commands.spawn(PeticionCargar(nombre));
     }
 
-    // Cerramos el selector tras elegir un archivo o al hacer clic fuera
     commands.entity(ent_sel).despawn();
 }
 
-// --- Bloque 6: Gestión del Teclado para Guardar Archivo (.cir) ---
+// --- Bloque 6: Gestión del Teclado para Guardar (.cir o .chp) ---
 pub fn gestionar_teclado_archivo(
     keys: Res<ButtonInput<KeyCode>>,
     mut q_dialogo: Query<(Entity, &mut DialogoArchivo)>,
@@ -253,40 +262,34 @@ pub fn gestionar_teclado_archivo(
         return;
     };
 
-    // 1. Cancelar con Escape
+    let ext = if dlg.es_chip { ".chp" } else { ".cir" };
+
     if keys.just_pressed(KeyCode::Escape) {
         commands.entity(ent_dlg).despawn();
         return;
     }
 
-    // 2. Confirmar con Enter
     if keys.just_pressed(KeyCode::Enter) {
         let base = dlg.nombre.trim().to_string();
         if !base.is_empty() {
-            let nombre_final = if base.ends_with(".cir") {
+            let nombre_final = if base.ends_with(ext) {
                 base
             } else {
-                format!("{}.cir", base)
+                format!("{}{}", base, ext)
             };
 
-            if dlg.es_guardar {
-                commands.spawn(PeticionGuardar(nombre_final));
-            } else {
-                commands.spawn(PeticionCargar(nombre_final));
-            }
+            commands.spawn(PeticionGuardar(nombre_final));
         }
         commands.entity(ent_dlg).despawn();
         return;
     }
 
-    // 3. Borrar último carácter con Backspace
     let mut cambiado = false;
     if keys.just_pressed(KeyCode::Backspace) {
         dlg.nombre.pop();
         cambiado = true;
     }
 
-    // 4. Lectura de letras, números y guiones
     let shift = keys.pressed(KeyCode::ShiftLeft) 
         || keys.pressed(KeyCode::ShiftRight);
 
@@ -340,23 +343,31 @@ pub fn gestionar_teclado_archivo(
 
     if cambiado {
         for mut txt in q_texto.iter_mut() {
-            txt.0 = format!("{}_.cir", dlg.nombre);
+            txt.0 = format!("{}_{}", dlg.nombre, ext);
         }
     }
 }
-// ==========================================
-// Fichero: src/archivo.rs
-// Bloque: Bloque 7: Sistema de Guardado y Carga en Fichero
-// ==========================================
+
+// --- Bloque 7: Sistema de Guardado y Carga en Fichero ---
 pub fn procesar_guardado_y_carga(
     q_guardar: Query<(Entity, &PeticionGuardar)>,
     q_cargar: Query<(Entity, &PeticionCargar)>,
-    q_nodos: Query<(Entity, &Transform, &NodoLogico, &Children)>,
+    q_nodos: Query<(
+        Entity, 
+        &Transform, 
+        &NodoLogico, 
+        &Children, 
+        Option<&PegadoABarra>,
+        Option<&InstanciaChip>,
+    )>,
     q_cables: Query<(Entity, &Cable)>,
+    q_barras: Query<Entity, With<BarraChip>>,
+    q_barra_inf: Query<Entity, With<BarraInferiorChips>>,
     q_botones: Query<&BotonInterruptor>,
     q_relojes: Query<&ControlReloj>,
     q_conectores: Query<&TipoConector>,
-    q_pines: Query<&PinEntrada>,
+    q_pines_in: Query<&PinEntrada>,
+    q_pines_out: Query<&PinSalida>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
@@ -377,8 +388,13 @@ pub fn procesar_guardado_y_carga(
             &q_botones,
             &q_relojes,
             &q_conectores,
-            &q_pines,
+            &q_pines_in,
+            &q_pines_out,
         );
+        // Si se ha guardado un Chip (.chp), refrescamos la barra inferior
+        if ruta.ends_with(".chp") {
+            reconstruir_barra_inferior_chips(&mut commands, &q_barra_inf);
+        }
     }
 
     // 2. Procesar Carga si existe petición
@@ -393,6 +409,7 @@ pub fn procesar_guardado_y_carga(
             &ruta,
             &q_nodos,
             &q_cables,
+            &q_barras,
             &mut commands,
             &mut meshes,
             &mut materials,
@@ -401,24 +418,31 @@ pub fn procesar_guardado_y_carga(
     }
 }
 
-// --- Bloque 8: Lógica de Serialización a Texto ---
+// --- Bloque 8: Lógica de Serialización a Texto (con Pines de Chip) ---
 fn guardar_en_disco(
     ruta_archivo: &str,
-    q_nodos: &Query<(Entity, &Transform, &NodoLogico, &Children)>,
+    q_nodos: &Query<(
+        Entity, 
+        &Transform, 
+        &NodoLogico, 
+        &Children, 
+        Option<&PegadoABarra>,
+        Option<&InstanciaChip>,
+    )>,
     q_cables: &Query<(Entity, &Cable)>,
     q_botones: &Query<&BotonInterruptor>,
     q_relojes: &Query<&ControlReloj>,
     q_conectores: &Query<&TipoConector>,
-    q_pines: &Query<&PinEntrada>,
+    q_pines_in: &Query<&PinEntrada>,
+    q_pines_out: &Query<&PinSalida>,
 ) {
     let mut lineas = Vec::new();
     let mut lista_nodos = Vec::new();
 
-    // Recorremos todos los nodos y les asignamos un índice numérico (0, 1, 2...)
-    for (ent_nodo, trf, nodo, hijos) in q_nodos.iter() {
+    for (ent_nodo, trf, nodo, hijos, opt_pegado, opt_chip) in q_nodos.iter() {
         let mut estado_bool = 0;
         let mut indice_frec = 1;
-        let mut ent_salida = None;
+        let mut salidas_nodo = Vec::new();
         let mut entradas_nodo = Vec::new();
 
         for hijo in hijos.iter() {
@@ -433,60 +457,79 @@ fn guardar_en_disco(
             if let Ok(tipo_con) = q_conectores.get(hijo) {
                 match tipo_con {
                     TipoConector::Salida => {
-                        ent_salida = Some(hijo);
-                    }
-                    TipoConector::Entrada => {
-                        let pin = q_pines
+                        let pin_s = q_pines_out
                             .get(hijo)
                             .map(|p| p.0)
                             .unwrap_or(0);
-                        entradas_nodo.push((pin, hijo));
+                        salidas_nodo.push((pin_s, hijo));
+                    }
+                    TipoConector::Entrada => {
+                        let pin_e = q_pines_in
+                            .get(hijo)
+                            .map(|p| p.0)
+                            .unwrap_or(0);
+                        entradas_nodo.push((pin_e, hijo));
                     }
                 }
             }
         }
 
         let cod_tipo = match nodo.tipo {
-            TipoPuerta::And => "AND",
-            TipoPuerta::Or => "OR",
-            TipoPuerta::Not => "NOT",
-            TipoPuerta::Nand => "NAND",
-            TipoPuerta::Nor => "NOR",
-            TipoPuerta::Xor => "XOR",
-            TipoPuerta::Xnor => "XNOR",
-            TipoPuerta::Interruptor => "INT",
-            TipoPuerta::Led => "LED",
-            TipoPuerta::Reloj => "CLK",
-            TipoPuerta::Display7Seg => "D7S",
-            TipoPuerta::Display4Bits => "D4B",
+            TipoPuerta::And => "AND".to_string(),
+            TipoPuerta::Or => "OR".to_string(),
+            TipoPuerta::Not => "NOT".to_string(),
+            TipoPuerta::Nand => "NAND".to_string(),
+            TipoPuerta::Nor => "NOR".to_string(),
+            TipoPuerta::Xor => "XOR".to_string(),
+            TipoPuerta::Xnor => "XNOR".to_string(),
+            TipoPuerta::Interruptor => "INT".to_string(),
+            TipoPuerta::Led => "LED".to_string(),
+            TipoPuerta::Reloj => "CLK".to_string(),
+            TipoPuerta::Display7Seg => "D7S".to_string(),
+            TipoPuerta::Display4Bits => "D4B".to_string(),
+            TipoPuerta::Chip => {
+                let nom = opt_chip
+                    .map(|c| c.datos.nombre.clone())
+                    .unwrap_or_else(|| "CHIP".to_string());
+                format!("CHIP:{}", nom)
+            }
+        };
+
+        let tag_barra = match opt_pegado {
+            Some(PegadoABarra(BarraChip::IzquierdaEntradas)) => "PIN_IN",
+            Some(PegadoABarra(BarraChip::DerechaSalidas)) => "PIN_OUT",
+            None => "LIBRE",
         };
 
         let x = trf.translation.x;
         let y = trf.translation.y;
 
         let linea = format!(
-            "NODO|{}|{}|{}|{}|{}",
-            cod_tipo, x, y, estado_bool, indice_frec
+            "NODO|{}|{}|{}|{}|{}|{}",
+            cod_tipo, x, y, estado_bool, indice_frec, tag_barra
         );
         lineas.push(linea);
 
-        lista_nodos.push((ent_nodo, ent_salida, entradas_nodo));
+        lista_nodos.push((ent_nodo, salidas_nodo, entradas_nodo));
     }
 
-    // Guardamos los cables indicando de qué índice de nodo a qué índice y pin van
     for (_, cable) in q_cables.iter() {
         let mut idx_origen = None;
+        let mut pin_origen = 0;
         let mut idx_destino = None;
         let mut pin_destino = 0;
 
-        for (i, (_, sal, entradas)) in lista_nodos.iter().enumerate() {
-            if *sal == Some(cable.origen) {
-                idx_origen = Some(i);
+        for (i, (_, salidas, entradas)) in lista_nodos.iter().enumerate() {
+            for (p_out, ent_out) in salidas.iter() {
+                if *ent_out == cable.origen {
+                    idx_origen = Some(i);
+                    pin_origen = *p_out;
+                }
             }
-            for (pin, ent_in) in entradas.iter() {
+            for (p_in, ent_in) in entradas.iter() {
                 if *ent_in == cable.destino {
                     idx_destino = Some(i);
-                    pin_destino = *pin;
+                    pin_destino = *p_in;
                 }
             }
         }
@@ -499,11 +542,12 @@ fn guardar_en_disco(
                 .collect();
 
             let linea = format!(
-                "CABLE|{}|{}|{}|{}",
+                "CABLE|{}|{}|{}|{}|{}",
                 orig,
                 dest,
                 pin_destino,
-                codos_str.join(";")
+                codos_str.join(";"),
+                pin_origen
             );
             lineas.push(linea);
         }
@@ -513,18 +557,23 @@ fn guardar_en_disco(
     if let Err(err) = fs::write(ruta_archivo, contenido) {
         println!("Error al guardar {}: {}", ruta_archivo, err);
     } else {
-        println!("Circuito guardado correctamente en {}", ruta_archivo);
+        println!("Guardado correctamente en {}", ruta_archivo);
     }
 }
 
-// ==========================================
-// Fichero: src/archivo.rs
-// Bloque: Bloque 9: Lógica de Lectura y Reconstrucción
-// ==========================================
+// --- Bloque 9: Lógica de Lectura y Reconstrucción en Lienzo ---
 fn cargar_desde_disco(
     ruta_archivo: &str,
-    q_nodos: &Query<(Entity, &Transform, &NodoLogico, &Children)>,
+    q_nodos: &Query<(
+        Entity, 
+        &Transform, 
+        &NodoLogico, 
+        &Children, 
+        Option<&PegadoABarra>,
+        Option<&InstanciaChip>,
+    )>,
     q_cables: &Query<(Entity, &Cable)>,
+    q_barras: &Query<Entity, With<BarraChip>>,
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<ColorMaterial>>,
@@ -535,17 +584,15 @@ fn cargar_desde_disco(
         return;
     };
 
-    // 1. Limpiamos el circuito actual de la pantalla
-    for (ent_nodo, _, _, _) in q_nodos.iter() {
+    for (ent_nodo, _, _, _, _, _) in q_nodos.iter() {
         commands.entity(ent_nodo).despawn();
     }
     for (ent_cable, _) in q_cables.iter() {
         commands.entity(ent_cable).despawn();
     }
 
-    // Guardaremos ( Option<Entity salida>, Vec<Entity entradas> ) por cada nodo
-    let mut conectores_creados: Vec<(Option<Entity>, Vec<Entity>)> = 
-        Vec::new();
+    let mut necesita_barras = false;
+    let mut conectores_creados: Vec<(Vec<Entity>, Vec<Entity>)> = Vec::new();
 
     for linea in contenido.lines() {
         let partes: Vec<&str> = linea.split('|').collect();
@@ -559,108 +606,85 @@ fn cargar_desde_disco(
             let y: f32 = partes[3].parse().unwrap_or(0.0);
             let est: bool = partes[4] == "1";
             let frec: usize = partes[5].parse().unwrap_or(1);
-            let pos = Vec2::new(x, y);
-
-            let info_con = match cod {
-                "AND" => crear_puerta(
-                    commands, 
-                    meshes,
-                    materials,
-                    pos, 
-                    TipoPuerta::And, 
-                    config
-                ),
-                "OR" => crear_puerta(
-                    commands, 
-                    meshes,
-                    materials,
-                    pos, 
-                    TipoPuerta::Or, 
-                    config
-                ),
-                "NOT" => crear_puerta(
-                    commands, 
-                    meshes,
-                    materials,
-                    pos, 
-                    TipoPuerta::Not, 
-                    config
-                ),
-                "NAND" => crear_puerta(
-                    commands, 
-                    meshes,
-                    materials,
-                    pos, 
-                    TipoPuerta::Nand, 
-                    config
-                ),
-                "NOR" => crear_puerta(
-                    commands, 
-                    meshes,
-                    materials,
-                    pos, 
-                    TipoPuerta::Nor, 
-                    config
-                ),
-                "XOR" => crear_puerta(
-                    commands, 
-                    meshes,
-                    materials,
-                    pos, 
-                    TipoPuerta::Xor, 
-                    config
-                ),
-                "XNOR" => crear_puerta(
-                    commands, 
-                    meshes,
-                    materials,
-                    pos, 
-                    TipoPuerta::Xnor, 
-                    config
-                ),
-                "INT" => crear_interruptor(
-                    commands, 
-                    meshes, 
-                    materials, 
-                    pos, 
-                    est, 
-                    config
-                ),
-                "LED" => crear_led(
-                    commands, 
-                    meshes, 
-                    materials, 
-                    pos, 
-                    config
-                ),
-                "CLK" => crear_reloj(
-                    commands, 
-                    meshes, 
-                    materials, 
-                    pos, 
-                    frec, 
-                    config
-                ),
-                "D7S" => crear_display(
-                    commands, 
-                    pos, 
-                    false, 
-                    config
-                ),
-                "D4B" => crear_display(
-                    commands, 
-                    pos, 
-                    true, 
-                    config
-                ),
-                _ => (None, Vec::new()),
+            let tag_barra = if partes.len() >= 7 {
+                partes[6]
+            } else {
+                "LIBRE"
             };
 
-            conectores_creados.push(info_con);
+            if tag_barra == "PIN_IN" || tag_barra == "PIN_OUT" {
+                necesita_barras = true;
+            }
+
+            let pos = Vec2::new(x, y);
+
+            let (salidas_vec, entradas_vec) = if let Some(nom_chip) = 
+                cod.strip_prefix("CHIP:") 
+            {
+                let arch_sub_min = format!("{}.chp", nom_chip.to_lowercase());
+                let arch_sub_orig = format!("{}.chp", nom_chip);
+                if let Some(datos_sub) = leer_datos_chip_desde_chp(&arch_sub_min)
+                    .or_else(|| leer_datos_chip_desde_chp(&arch_sub_orig)) 
+                {
+                    crear_chip_personalizado(
+                        commands, 
+                        pos, 
+                        datos_sub, 
+                        config
+                    )
+                } else {
+                    (Vec::new(), Vec::new())
+                }
+            } else {
+                let info_simple = match cod {
+                    "AND" => crear_puerta(
+                        commands, meshes, materials, pos, TipoPuerta::And, config
+                    ),
+                    "OR" => crear_puerta(
+                        commands, meshes, materials, pos, TipoPuerta::Or, config
+                    ),
+                    "NOT" => crear_puerta(
+                        commands, meshes, materials, pos, TipoPuerta::Not, config
+                    ),
+                    "NAND" => crear_puerta(
+                        commands, meshes, materials, pos, TipoPuerta::Nand, config
+                    ),
+                    "NOR" => crear_puerta(
+                        commands, meshes, materials, pos, TipoPuerta::Nor, config
+                    ),
+                    "XOR" => crear_puerta(
+                        commands, meshes, materials, pos, TipoPuerta::Xor, config
+                    ),
+                    "XNOR" => crear_puerta(
+                        commands, meshes, materials, pos, TipoPuerta::Xnor, config
+                    ),
+                    "INT" => crear_interruptor(
+                        commands, meshes, materials, pos, est, config
+                    ),
+                    "LED" => crear_led(
+                        commands, meshes, materials, pos, config
+                    ),
+                    "CLK" => crear_reloj(
+                        commands, meshes, materials, pos, frec, config
+                    ),
+                    "D7S" => crear_display(commands, pos, false, config),
+                    "D4B" => crear_display(commands, pos, true, config),
+                    _ => (None, Vec::new()),
+                };
+                let v_sal = info_simple.0.into_iter().collect();
+                (v_sal, info_simple.1)
+            };
+
+            conectores_creados.push((salidas_vec, entradas_vec));
         } else if partes[0] == "CABLE" && partes.len() >= 4 {
             let orig_idx: usize = partes[1].parse().unwrap_or(9999);
             let dest_idx: usize = partes[2].parse().unwrap_or(9999);
-            let pin_idx: usize = partes[3].parse().unwrap_or(0);
+            let pin_in_idx: usize = partes[3].parse().unwrap_or(0);
+            let pin_out_idx: usize = if partes.len() >= 6 {
+                partes[5].parse().unwrap_or(0)
+            } else {
+                0
+            };
 
             let mut puntos_intermedios = Vec::new();
             if partes.len() >= 5 && !partes[4].is_empty() {
@@ -677,22 +701,268 @@ fn cargar_desde_disco(
             if orig_idx < conectores_creados.len() 
                 && dest_idx < conectores_creados.len() 
             {
-                let ent_orig = conectores_creados[orig_idx].0;
+                let salidas_orig = &conectores_creados[orig_idx].0;
                 let entradas_dest = &conectores_creados[dest_idx].1;
 
-                if let Some(origen) = ent_orig {
-                    if pin_idx < entradas_dest.len() {
-                        let destino = entradas_dest[pin_idx];
-                        commands.spawn(Cable { 
-                            origen, 
-                            destino,
-                            puntos_intermedios,
-                        });
-                    }
+                if let (Some(&origen), Some(&destino)) = (
+                    salidas_orig.get(pin_out_idx),
+                    entradas_dest.get(pin_in_idx),
+                ) {
+                    commands.spawn(Cable { 
+                        origen, 
+                        destino,
+                        puntos_intermedios,
+                    });
                 }
             }
         }
     }
 
+    if necesita_barras && q_barras.is_empty() {
+        crear_barras_chip(commands);
+    }
+
     println!("Circuito cargado correctamente desde {}", ruta_archivo);
+}
+
+// --- Bloque 10: Lector de Estructura Interna de Chip (.chp) ---
+pub fn leer_datos_chip_desde_chp(ruta_archivo: &str) -> Option<DatosChip> {
+    let contenido = fs::read_to_string(ruta_archivo).ok()?;
+    let nombre_limpio = ruta_archivo
+        .strip_suffix(".chp")
+        .unwrap_or(ruta_archivo)
+        .to_uppercase();
+
+    let mut nodos = Vec::new();
+    let mut cables = Vec::new();
+    let mut entradas_con_y: Vec<(usize, f32)> = Vec::new();
+    let mut salidas_con_y: Vec<(usize, f32)> = Vec::new();
+
+    for linea in contenido.lines() {
+        let partes: Vec<&str> = linea.split('|').collect();
+        if partes.is_empty() {
+            continue;
+        }
+
+        if partes[0] == "NODO" && partes.len() >= 6 {
+            let cod = partes[1].to_string();
+            let x: f32 = partes[2].parse().unwrap_or(0.0);
+            let y: f32 = partes[3].parse().unwrap_or(0.0);
+            let tag = if partes.len() >= 7 {
+                partes[6]
+            } else {
+                "LIBRE"
+            };
+
+            let idx_actual = nodos.len();
+
+            if tag == "PIN_IN" || (cod == "INT" && (x - (-500.0)).abs() < 20.0) {
+                entradas_con_y.push((idx_actual, y));
+            }
+            if tag == "PIN_OUT" || (cod == "LED" && (x - 500.0).abs() < 20.0) {
+                salidas_con_y.push((idx_actual, y));
+            }
+
+            let sub_chip = if let Some(nom_sub) = cod.strip_prefix("CHIP:") {
+                let arch_sub = format!("{}.chp", nom_sub.to_lowercase());
+                leer_datos_chip_desde_chp(&arch_sub)
+                    .or_else(|| leer_datos_chip_desde_chp(&format!("{}.chp", nom_sub)))
+                    .map(Box::new)
+            } else {
+                None
+            };
+
+            nodos.push(NodoInternoChip {
+                cod_tipo: cod,
+                sub_chip,
+            });
+        } else if partes[0] == "CABLE" && partes.len() >= 4 {
+            let orig: usize = partes[1].parse().unwrap_or(0);
+            let dest: usize = partes[2].parse().unwrap_or(0);
+            let pin_in: usize = partes[3].parse().unwrap_or(0);
+            let pin_out: usize = if partes.len() >= 6 {
+                partes[5].parse().unwrap_or(0)
+            } else {
+                0
+            };
+            cables.push((orig, pin_out, dest, pin_in));
+        }
+    }
+
+    entradas_con_y.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    salidas_con_y.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+    let pines_entrada: Vec<usize> = entradas_con_y.into_iter().map(|(i, _)| i).collect();
+    let pines_salida: Vec<usize> = salidas_con_y.into_iter().map(|(i, _)| i).collect();
+
+    if pines_entrada.is_empty() && pines_salida.is_empty() {
+        return None;
+    }
+
+    Some(DatosChip {
+        nombre: nombre_limpio,
+        nodos,
+        cables,
+        pines_entrada,
+        pines_salida,
+    })
+}
+
+// --- Bloque 11: Barra Inferior Flotante de Chips (Solo archivos .chp) ---
+pub fn reconstruir_barra_inferior_chips(
+    commands: &mut Commands,
+    q_barra_existente: &Query<Entity, With<BarraInferiorChips>>,
+) {
+    for ent in q_barra_existente.iter() {
+        commands.entity(ent).despawn();
+    }
+
+    // Ahora SOLO buscamos ficheros con extensión .chp
+    let archivos_chp = listar_archivos_por_ext("chp");
+    let mut chips_validos = Vec::new();
+
+    for arch in archivos_chp {
+        if let Some(datos) = leer_datos_chip_desde_chp(&arch) {
+            chips_validos.push((arch, datos.nombre));
+        }
+    }
+
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            bottom: Val::Px(10.0),
+            left: Val::Px(16.0),
+            right: Val::Px(16.0),
+            height: Val::Px(46.0),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::FlexStart,
+            column_gap: Val::Px(10.0),
+            padding: UiRect::horizontal(Val::Px(14.0)),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.08, 0.09, 0.12, 0.92)),
+        BarraInferiorChips,
+    ))
+    .with_children(|barra| {
+        barra.spawn((
+            Node {
+                width: Val::Px(60.0),
+                ..default()
+            },
+            Text::new("CHIPS:"),
+            TextFont {
+                font_size: bevy::text::FontSize::Px(14.0),
+                ..default()
+            },
+            TextColor(Color::srgb(0.65, 0.75, 0.90)),
+        ));
+
+        if chips_validos.is_empty() {
+            barra.spawn((
+                Text::new(
+                    "(Usa Chip >> Guardar .chp con entradas/salidas en las barras para crear un Chip)"
+                ),
+                TextFont {
+                    font_size: bevy::text::FontSize::Px(13.0),
+                    ..default()
+                },
+                TextColor(Color::srgb(0.5, 0.52, 0.58)),
+            ));
+        } else {
+            let mut cursor_x = 100.0;
+            let ancho_fijo_btn = 110.0;
+            let gap = 10.0;
+
+            for (archivo_chp, nombre_chip) in chips_validos {
+                let x_min = cursor_x;
+                let x_max = cursor_x + ancho_fijo_btn;
+                cursor_x = x_max + gap;
+
+                barra.spawn((
+                    Node {
+                        width: Val::Px(ancho_fijo_btn),
+                        height: Val::Px(32.0),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.20, 0.34, 0.50)),
+                    BotonChipInferior { 
+                        archivo_chp,
+                        x_min,
+                        x_max,
+                    },
+                ))
+                .with_children(|btn| {
+                    btn.spawn((
+                        Text::new(format!("+ {}", nombre_chip)),
+                        TextFont {
+                            font_size: bevy::text::FontSize::Px(14.0),
+                            ..default()
+                        },
+                        TextColor(Color::WHITE),
+                    ));
+                });
+            }
+        }
+    });
+}
+
+pub fn gestionar_clic_barra_inferior(
+    buttons: Res<ButtonInput<MouseButton>>,
+    q_windows: Query<&Window, With<PrimaryWindow>>,
+    q_camera: Query<&Transform, With<CamaraPrincipal>>,
+    mut q_botones: Query<(&BotonChipInferior, &mut BackgroundColor)>,
+    mut commands: Commands,
+    config: Res<ConfigApp>,
+) {
+    let Ok(window) = q_windows.single() else { return; };
+    let Some(pos_cursor) = window.cursor_position() else {
+        return;
+    };
+
+    let alto_ventana = window.height();
+    let dentro_franja_y = pos_cursor.y >= (alto_ventana - 56.0) 
+        && pos_cursor.y <= (alto_ventana - 10.0);
+
+    let centro_cam = q_camera
+        .single()
+        .map(|t| t.translation.truncate())
+        .unwrap_or(Vec2::ZERO);
+
+    for (btn_chip, mut color_fondo) in q_botones.iter_mut() {
+        let dentro_x = pos_cursor.x >= btn_chip.x_min 
+            && pos_cursor.x <= btn_chip.x_max;
+
+        if dentro_franja_y && dentro_x {
+            if buttons.just_pressed(MouseButton::Left) {
+                *color_fondo = BackgroundColor(
+                    Color::srgb(0.15, 0.65, 0.35)
+                );
+                if let Some(datos) = 
+                    leer_datos_chip_desde_chp(&btn_chip.archivo_chp) 
+                {
+                    let cuadricula = 50.0;
+                    let pos_snap = Vec2::new(
+                        (centro_cam.x / cuadricula).round() * cuadricula,
+                        (centro_cam.y / cuadricula).round() * cuadricula,
+                    );
+                    crear_chip_personalizado(
+                        &mut commands,
+                        pos_snap,
+                        datos,
+                        &config,
+                    );
+                }
+            } else {
+                *color_fondo = BackgroundColor(
+                    Color::srgb(0.28, 0.46, 0.68)
+                );
+            }
+        } else {
+            *color_fondo = BackgroundColor(
+                Color::srgb(0.20, 0.34, 0.50)
+            );
+        }
+    }
 }

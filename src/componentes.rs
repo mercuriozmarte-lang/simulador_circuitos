@@ -29,13 +29,13 @@ pub struct CodoArrastrado {
     pub seleccion: Option<(Entity, usize)>,
 }
 
+
 // Bloque: Bloque 4: Componentes de Nodos y Barras de Chip
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TipoPuerta {
     And,
     Or,
     Not,
-    // NUEVO: Resto de puertas lógicas fundamentales
     Nand,
     Nor,
     Xor,
@@ -50,12 +50,41 @@ pub enum TipoPuerta {
     Display7Seg,
     // Display de 7 segmentos con decodificador de 4 bits (8, 4, 2, 1)
     Display4Bits,
+    // Chip personalizado cargado desde un fichero .cir
+    Chip,
 }
 
 // Ahora el nodo recuerda qué operación matemática debe hacer
 #[derive(Component)]
 pub struct NodoLogico {
     pub tipo: TipoPuerta,
+}
+
+// NUEVO: Representa un nodo interno dentro de un Chip empaquetado
+#[derive(Clone, Debug)]
+pub struct NodoInternoChip {
+    pub cod_tipo: String,
+    pub sub_chip: Option< Box<DatosChip> >,
+}
+
+// NUEVO: Estructura lógica interna de un Chip (nodos, cables y pines ordenados)
+#[derive(Clone, Debug, Default)]
+pub struct DatosChip {
+    pub nombre: String,
+    pub nodos: Vec<NodoInternoChip>,
+    // (idx_nodo_origen, pin_salida_origen, idx_nodo_destino, pin_entrada_destino)
+    pub cables: Vec<(usize, usize, usize, usize)>,
+    // Índices de los nodos Interruptor pegados a la barra izquierda (de arriba a abajo)
+    pub pines_entrada: Vec<usize>,
+    // Índices de los nodos LED pegados a la barra derecha (de arriba a abajo)
+    pub pines_salida: Vec<usize>,
+}
+
+// NUEVO: Componente que lleva cada bloque Chip instanciado en pantalla
+#[derive(Component, Clone)]
+pub struct InstanciaChip {
+    pub datos: DatosChip,
+    pub estados_nodos: Vec< Vec<bool> >,
 }
 
 // Identifica las dos barras laterales donde se pegan las patillas del Chip
@@ -95,6 +124,10 @@ pub struct IndicadorLed;
 #[derive(Component)]
 pub struct PinEntrada(pub usize);
 
+// NUEVO: Identifica el número de patilla de salida en un Chip (0, 1, 2...)
+#[derive(Component)]
+pub struct PinSalida(pub usize);
+
 // Identifica cada uno de los 7 segmentos luminosos (0 = A ... 6 = G)
 #[derive(Component)]
 pub struct SegmentoDisplay(pub usize);
@@ -108,6 +141,7 @@ pub struct Arrastrando;
 
 #[derive(Component)]
 pub struct CamaraPrincipal;
+
 // --- Bloque 5: Componentes de Conectores ---
 #[derive(Component, PartialEq, Eq, Clone, Copy)]
 pub enum TipoConector {
@@ -128,7 +162,10 @@ pub struct Cable {
     pub puntos_intermedios: Vec<Vec2>,
 }
 
-// --- Bloque 7: Componentes del Menú Contextual ---
+// ==========================================
+// Fichero: src/componentes.rs
+// Bloque: Bloque 7: Componentes del Menú Contextual
+// ==========================================
 #[derive(Component)]
 pub struct MenuContextual {
     // Guardamos dónde se hizo clic derecho para crear ahí la pieza
@@ -155,6 +192,8 @@ pub enum AccionMenu {
     AbrirCategoria(CategoriaMenu),
     CrearNodo(TipoPuerta),
     AlternarBarrasChip,
+    // NUEVO: Guardar específicamente como Chip (.chp) para la barra inferior
+    GuardarChip,
     GuardarCircuito,
     CargarCircuito,
     LimpiarTodo,
@@ -167,10 +206,11 @@ pub struct BotonMenu {
     pub centro_mundo: Vec2,
 }
 
-// Ventana flotante para teclear el nombre del fichero al guardar
+// Ventana flotante para teclear el nombre del fichero (.cir o .chp)
 #[derive(Component)]
 pub struct DialogoArchivo {
-    pub es_guardar: bool,
+    // true = Guardar Chip (.chp), false = Guardar Circuito (.cir)
+    pub es_chip: bool,
     pub nombre: String,
 }
 
@@ -187,4 +227,16 @@ pub struct SelectorCarga;
 pub struct BotonArchivoCir {
     pub nombre_archivo: String,
     pub centro_mundo: Vec2,
+}
+
+// Contenedor UI de la barra inferior flotante de Chips
+#[derive(Component)]
+pub struct BarraInferiorChips;
+
+// Botón UI en la barra inferior que instancia un Chip (.chp)
+#[derive(Component)]
+pub struct BotonChipInferior {
+    pub archivo_chp: String,
+    pub x_min: f32,
+    pub x_max: f32,
 }

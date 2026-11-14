@@ -44,6 +44,7 @@ fn main() {
                 (
                     gestionar_teclado_archivo,
                     gestionar_clic_selector_carga,
+                    gestionar_clic_barra_inferior,
                     gestionar_clic_menu,
                     detectar_clic_nodo,
                     soltar_nodo,
@@ -70,6 +71,7 @@ fn main() {
 // --- Bloque 3: Setup del Entorno ---
 fn setup_entorno(
     mut commands: Commands,
+    q_barra_inf: Query<Entity, With<BarraInferiorChips>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     config: Res<ConfigApp>,
@@ -81,6 +83,9 @@ fn setup_entorno(
 
     // Creamos la cuadrícula fija en el fondo (Z = -5.0) detrás de todo
     crear_cuadricula_fondo(&mut commands, &config);
+
+    // Creamos la barra inferior flotante cargando los Chips (.cir) que existan en disco
+    reconstruir_barra_inferior_chips(&mut commands, &q_barra_inf);
 
     // Creamos dos interruptores de entrada a la izquierda
     crear_interruptor(
