@@ -18,24 +18,35 @@ use crate::{
     crear_chip_personalizado,
 };
 
-// --- Bloque 2: Eventos de Guardado, Carga e Inspección de Chips ---
+// ==========================================
+// Fichero: src/archivo.rs
+// Bloque: Bloque 2: Eventos de Guardado, Carga, Inspección y Undo
+// ==========================================
 #[derive(Component)]
 pub struct PeticionGuardar(pub String);
 
 #[derive(Component)]
 pub struct PeticionCargar(pub String);
 
-// NUEVO: Petición para entrar a ver el interior de un archivo .chp
+// Petición para entrar a ver el interior de un archivo .chp
 #[derive(Component)]
 pub struct PeticionEntrarChip(pub String);
 
-// NUEVO: Petición para volver al circuito anterior de la pila
+// Petición para volver al circuito anterior de la pila
 #[derive(Component)]
 pub struct PeticionSalirChip;
 
-// --- Bloque 3: Creador del Cuadro de Diálogo (.cir o .chp) ---
+// NUEVO: Petición para registrar una instantánea en el historial de Ctrl+Z
+#[derive(Component)]
+pub struct PeticionRegistrarUndo;
+
+// ==========================================
+// Fichero: src/archivo.rs
+// Bloque: Bloque 3: Creador del Cuadro de Diálogo (.cir o .chp)
+// ==========================================
 pub fn abrir_dialogo_archivo(
     commands: &mut Commands,
+    pos_cam: Vec2,
     es_chip: bool,
 ) {
     let (titulo, nombre_defecto, ext) = if es_chip {
@@ -58,7 +69,7 @@ pub fn abrir_dialogo_archivo(
             custom_size: Some(Vec2::new(460.0, 110.0)),
             ..default()
         },
-        Transform::from_xyz(0.0, 0.0, 20.0),
+        Transform::from_xyz(pos_cam.x, pos_cam.y, 20.0),
         DialogoArchivo {
             es_chip,
             nombre: nombre_defecto.clone(),
@@ -98,8 +109,14 @@ pub fn abrir_dialogo_archivo(
     });
 }
 
-// --- Bloque 4: Selector Visual de Ficheros .cir para Cargar ---
-pub fn abrir_selector_carga(commands: &mut Commands) {
+// ==========================================
+// Fichero: src/archivo.rs
+// Bloque: Bloque 4: Selector Visual de Ficheros .cir para Cargar
+// ==========================================
+pub fn abrir_selector_carga(
+    commands: &mut Commands,
+    pos_cam: Vec2,
+) {
     let archivos_cir = listar_archivos_por_ext("cir");
 
     let ancho_btn = 280.0;
@@ -114,7 +131,7 @@ pub fn abrir_selector_carga(commands: &mut Commands) {
             custom_size: Some(Vec2::new(340.0, total_alto)),
             ..default()
         },
-        Transform::from_xyz(0.0, 0.0, 20.0),
+        Transform::from_xyz(pos_cam.x, pos_cam.y, 20.0),
         SelectorCarga,
     ))
     .with_children(|padre| {
@@ -144,7 +161,7 @@ pub fn abrir_selector_carga(commands: &mut Commands) {
             let inicio_y = y_titulo - 38.0;
             for (i, nom_archivo) in archivos_cir.iter().enumerate() {
                 let y = inicio_y - (i as f32 * separacion);
-                let centro_mundo = Vec2::new(0.0, y);
+                let centro_mundo = Vec2::new(pos_cam.x, pos_cam.y + y);
 
                 padre.spawn((
                     Sprite {
@@ -197,7 +214,10 @@ pub fn listar_archivos_por_ext(extension_buscada: &str) -> Vec<String> {
     archivos
 }
 
-// --- Bloque 5: Interacción con la Lista de Ficheros .cir ---
+// ==========================================
+// Fichero: src/archivo.rs
+// Bloque: Bloque 5: Interacción con la Lista de Ficheros .cir
+// ==========================================
 pub fn gestionar_clic_selector_carga(
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -358,15 +378,19 @@ pub fn gestionar_teclado_archivo(
 
 // ==========================================
 // Fichero: src/archivo.rs
-// Bloque: Bloque 7: Sistema de Guardado, Carga e Inspección de Chips
+// Bloque: Bloque 7: Sistema de Guardado, Carga, Inspección y Ctrl+Z
 // ==========================================
 pub fn procesar_guardado_y_carga(
-    // Agrupamos las 4 peticiones en una tupla para no superar los 16 parámetros de Bevy
+    keys: Res<ButtonInput<KeyCode>>,
+    estado_app: Res<State<ModoApp>>,
+    codo_arrastrado: Res<CodoArrastrado>,
+    q_arrastrando: Query<Entity, With<Arrastrando>>,
     peticiones: (
         Query<(Entity, &PeticionGuardar)>,
         Query<(Entity, &PeticionCargar)>,
         Query<(Entity, &PeticionEntrarChip)>,
         Query<Entity, With<PeticionSalirChip>>,
+        Query<Entity, With<PeticionRegistrarUndo>>,
     ),
     q_nodos: Query<(
         Entity, 
@@ -377,21 +401,81 @@ pub fn procesar_guardado_y_carga(
         Option<&InstanciaChip>,
     )>,
     q_cables: Query<(Entity, &Cable)>,
-    q_barras: Query<Entity, With<BarraChip>>,
-    q_barra_inf: Query<Entity, With<BarraInferiorChips>>,
-    q_barra_sup: Query<Entity, With<BarraSuperiorInspeccion>>,
-    q_botones: Query<&BotonInterruptor>,
-    q_relojes: Query<&ControlReloj>,
-    q_conectores: Query<&TipoConector>,
-    q_pines_in: Query<&PinEntrada>,
-    q_pines_out: Query<&PinSalida>,
-    mut pila_inspeccion: ResMut<PilaInspeccion>,
+    barras_ui: (
+        Query<Entity, With<BarraChip>>,
+        Query<Entity, With<BarraInferiorChips>>,
+        Query<Entity, With<BarraSuperiorInspeccion>>,
+        Query<Entity, With<DialogoArchivo>>,
+    ),
+    datos_hijos: (
+        Query<&BotonInterruptor>,
+        Query<&ControlReloj>,
+        Query<&TipoConector>,
+        Query<&PinEntrada>,
+        Query<&PinSalida>,
+    ),
+    mut recursos_historial: (
+        ResMut<PilaInspeccion>,
+        ResMut<HistorialUndo>,
+    ),
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     config: Res<ConfigApp>,
 ) {
-    let (q_guardar, q_cargar, q_entrar, q_salir) = peticiones;
+    let (
+        q_guardar, 
+        q_cargar, 
+        q_entrar, 
+        q_salir, 
+        q_reg_undo
+    ) = peticiones;
+    let (
+        q_barras, 
+        q_barra_inf, 
+        q_barra_sup, 
+        q_dialogo
+    ) = barras_ui;
+    let (
+        q_botones, 
+        q_relojes, 
+        q_conectores, 
+        q_pines_in, 
+        q_pines_out
+    ) = datos_hijos;
+    let (
+        mut pila_inspeccion, 
+        mut historial_undo
+    ) = recursos_historial;
+
+    // Limpiamos cualquier petición antigua de undo
+    for ent in q_reg_undo.iter() {
+        commands.entity(ent).despawn();
+    }
+
+    // 0A. Detectar pulsación de CTRL + Z para deshacer (Undo)
+    let ctrl = keys.pressed(KeyCode::ControlLeft) 
+        || keys.pressed(KeyCode::ControlRight);
+    if ctrl && keys.just_pressed(KeyCode::KeyZ) && q_dialogo.is_empty() {
+        // El último elemento de `estados` es el estado actual en reposo;
+        // lo descartamos y restauramos el estado inmediatamente anterior.
+        if historial_undo.estados.len() >= 2 {
+            historial_undo.estados.pop();
+            if let Some(estado_previo) = historial_undo.estados.last().cloned() {
+                reconstruir_circuito_desde_texto(
+                    &estado_previo,
+                    &q_nodos,
+                    &q_cables,
+                    &q_barras,
+                    &mut commands,
+                    &mut meshes,
+                    &mut materials,
+                    &config,
+                );
+            }
+        }
+        return;
+    }
 
     // 1. Procesar Guardado si existe petición
     let mut archivo_guardar = None;
@@ -425,6 +509,7 @@ pub fn procesar_guardado_y_carga(
 
     if let Some(ruta) = archivo_cargar {
         pila_inspeccion.niveles.clear();
+        historial_undo.estados.clear();
         reconstruir_barra_superior_inspeccion(
             &mut commands,
             &q_barra_sup,
@@ -440,6 +525,7 @@ pub fn procesar_guardado_y_carga(
             &mut materials,
             &config,
         );
+        return;
     }
 
     // 3. Procesar entrada al interior de un Chip ([VER])
@@ -450,7 +536,6 @@ pub fn procesar_guardado_y_carga(
     }
 
     if let Some(ruta_chp) = chip_a_inspeccionar {
-        // Buscamos el archivo .chp en minúsculas o mayúsculas
         let contenido_chp = fs::read_to_string(&ruta_chp).or_else(|_| {
             let mayus = ruta_chp
                 .strip_suffix(".chp")
@@ -460,7 +545,6 @@ pub fn procesar_guardado_y_carga(
         });
 
         if let Ok(texto_chip) = contenido_chp {
-            // Guardamos una fotografía del circuito actual en la pila antes de entrar
             let foto_actual = serializar_circuito_a_texto(
                 &q_nodos,
                 &q_cables,
@@ -476,6 +560,7 @@ pub fn procesar_guardado_y_carga(
                 .to_uppercase();
 
             pila_inspeccion.niveles.push((nombre_chip, foto_actual));
+            historial_undo.estados.clear();
             reconstruir_barra_superior_inspeccion(
                 &mut commands,
                 &q_barra_sup,
@@ -495,6 +580,7 @@ pub fn procesar_guardado_y_carga(
         } else {
             println!("No se encontró el archivo del chip: {}", ruta_chp);
         }
+        return;
     }
 
     // 4. Procesar botón [< VOLVER] para regresar al circuito anterior
@@ -506,6 +592,7 @@ pub fn procesar_guardado_y_carga(
 
     if quiere_salir {
         if let Some((_, foto_anterior)) = pila_inspeccion.niveles.pop() {
+            historial_undo.estados.clear();
             reconstruir_barra_superior_inspeccion(
                 &mut commands,
                 &q_barra_sup,
@@ -522,10 +609,35 @@ pub fn procesar_guardado_y_carga(
                 &config,
             );
         }
+        return;
+    }
+
+    // 5. CAPTURA AUTOMÁTICA DE UNDO EN REPOSO:
+    // Solo registramos cuando el usuario NO está arrastrando un nodo/codo ni trazando una línea.
+    if q_arrastrando.is_empty() 
+        && codo_arrastrado.seleccion.is_none() 
+        && *estado_app.get() == ModoApp::Edicion 
+    {
+        let foto_reposo = serializar_circuito_a_texto(
+            &q_nodos,
+            &q_cables,
+            &q_botones,
+            &q_relojes,
+            &q_conectores,
+            &q_pines_in,
+            &q_pines_out,
+        );
+
+        if historial_undo.estados.last() != Some(&foto_reposo) {
+            if historial_undo.estados.len() >= 50 {
+                historial_undo.estados.remove(0);
+            }
+            historial_undo.estados.push(foto_reposo);
+        }
     }
 }
 
-// --- Bloque 8: Lógica de Serialización a Texto (con Pines de Chip) ---
+// --- Bloque 8: Lógica de Serialización a Texto (con Orden Determinista) ---
 pub fn serializar_circuito_a_texto(
     q_nodos: &Query<(
         Entity, 
@@ -542,10 +654,14 @@ pub fn serializar_circuito_a_texto(
     q_pines_in: &Query<&PinEntrada>,
     q_pines_out: &Query<&PinSalida>,
 ) -> String {
-    let mut lineas = Vec::new();
+    let mut lineas_nodos = Vec::new();
     let mut lista_nodos = Vec::new();
 
-    for (ent_nodo, trf, nodo, hijos, opt_pegado, opt_chip) in q_nodos.iter() {
+    // Ordenamos los nodos por Entity para que la foto de texto no cambie sola de orden
+    let mut nodos_ordenados: Vec<_> = q_nodos.iter().collect();
+    nodos_ordenados.sort_by_key(|(ent, _, _, _, _, _)| *ent);
+
+    for (ent_nodo, trf, nodo, hijos, opt_pegado, opt_chip) in nodos_ordenados {
         let mut estado_bool = 0;
         let mut indice_frec = 1;
         let mut salidas_nodo = Vec::new();
@@ -601,25 +717,37 @@ pub fn serializar_circuito_a_texto(
             }
         };
 
+        let x = trf.translation.x;
+        let y = trf.translation.y;
+
         let tag_barra = match opt_pegado {
             Some(PegadoABarra(BarraChip::IzquierdaEntradas)) => "PIN_IN",
             Some(PegadoABarra(BarraChip::DerechaSalidas)) => "PIN_OUT",
-            None => "LIBRE",
+            None => {
+                if cod_tipo == "INT" && (x - (-500.0)).abs() < 20.0 {
+                    "PIN_IN"
+                } else if cod_tipo == "LED" && (x - 500.0).abs() < 20.0 {
+                    "PIN_OUT"
+                } else {
+                    "LIBRE"
+                }
+            }
         };
-
-        let x = trf.translation.x;
-        let y = trf.translation.y;
 
         let linea = format!(
             "NODO|{}|{}|{}|{}|{}|{}",
             cod_tipo, x, y, estado_bool, indice_frec, tag_barra
         );
-        lineas.push(linea);
+        lineas_nodos.push(linea);
 
         lista_nodos.push((ent_nodo, salidas_nodo, entradas_nodo));
     }
 
-    for (_, cable) in q_cables.iter() {
+    let mut lineas_cables = Vec::new();
+    let mut cables_ordenados: Vec<_> = q_cables.iter().collect();
+    cables_ordenados.sort_by_key(|(ent, _)| *ent);
+
+    for (_, cable) in cables_ordenados {
         let mut idx_origen = None;
         let mut pin_origen = 0;
         let mut idx_destino = None;
@@ -655,11 +783,12 @@ pub fn serializar_circuito_a_texto(
                 codos_str.join(";"),
                 pin_origen
             );
-            lineas.push(linea);
+            lineas_cables.push(linea);
         }
     }
 
-    lineas.join("\n")
+    lineas_nodos.extend(lineas_cables);
+    lineas_nodos.join("\n")
 }
 
 fn guardar_en_disco(

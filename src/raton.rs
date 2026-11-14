@@ -1,8 +1,10 @@
+
 // ==========================================
 // Fichero: src/raton.rs
 // Bloque: Bloque 1: Importaciones
 // ==========================================
 use bevy::prelude::*;
+use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::window::PrimaryWindow;
 use crate::componentes::*;
 use crate::configuracion::ConfigApp;
@@ -10,6 +12,7 @@ use crate::archivo::{
     abrir_dialogo_archivo, 
     abrir_selector_carga,
     PeticionEntrarChip,
+    PeticionRegistrarUndo,
 };
 use crate::{
     crear_puerta, 
@@ -19,7 +22,6 @@ use crate::{
     crear_display,
     crear_barras_chip,
 };
-
 // ==========================================
 // Fichero: src/raton.rs
 // Bloque: Bloque 2A: Gestión de Hover y Clics en el Menú Contextual
@@ -42,7 +44,6 @@ pub fn gestionar_clic_menu(
     mut commands: Commands,
     config: Res<ConfigApp>,
 ) {
-    // Si no hay menú abierto, salimos
     let Ok((ent_menu, trf_menu, menu)) = q_menu.single() else {
         return;
     };
@@ -59,6 +60,8 @@ pub fn gestionar_clic_menu(
     ) else {
         return;
     };
+
+    let pos_cam = cam_trf.translation().truncate();
 
     let mut accion_bajo_cursor = None;
     let mitad_ancho = 65.0;
@@ -112,6 +115,8 @@ pub fn gestionar_clic_menu(
                 return;
             }
             AccionMenu::CrearNodo(tipo) => {
+                commands.spawn(PeticionRegistrarUndo);
+
                 let cuadricula = 50.0;
                 let pos_snap = Vec2::new(
                     (menu.pos_creacion.x / cuadricula).round() 
@@ -195,17 +200,16 @@ pub fn gestionar_clic_menu(
                 }
             }
             AccionMenu::GuardarChip => {
-                // true = Guardar como Chip (.chp)
-                abrir_dialogo_archivo(&mut commands, true);
+                abrir_dialogo_archivo(&mut commands, pos_cam, true);
             }
             AccionMenu::GuardarCircuito => {
-                // false = Guardar como Circuito (.cir)
-                abrir_dialogo_archivo(&mut commands, false);
+                abrir_dialogo_archivo(&mut commands, pos_cam, false);
             }
             AccionMenu::CargarCircuito => {
-                abrir_selector_carga(&mut commands);
+                abrir_selector_carga(&mut commands, pos_cam);
             }
             AccionMenu::LimpiarTodo => {
+                commands.spawn(PeticionRegistrarUndo);
                 for ent_n in q_nodos.iter() {
                     commands.entity(ent_n).despawn();
                 }
@@ -221,13 +225,13 @@ pub fn gestionar_clic_menu(
         commands.entity(ent_sub).despawn();
     }
 }
-
 // ==========================================
 // Fichero: src/raton.rs
 // Bloque: Bloque 2B: Clic en Nodos, Conectores y Codos de Cable
 // ==========================================
 pub fn detectar_clic_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
     q_camera: Query<
         (&Camera, &GlobalTransform), 
@@ -246,7 +250,6 @@ pub fn detectar_clic_nodo(
         (Entity, &GlobalTransform, &TipoConector)
     >,
     q_cables: Query<(Entity, &Cable)>,
-    // Agrupamos los controles interactivos en tupla para no pasar de 16 parámetros
     mut controles_nodos: (
         Query<
             (&GlobalTransform, &mut BotonInterruptor, &mut Sprite),
@@ -266,6 +269,11 @@ pub fn detectar_clic_nodo(
     mut commands: Commands,
     config: Res<ConfigApp>,
 ) {
+    // Si mantiene pulsado Espacio, el clic izquierdo se usa para arrastrar la cámara (Pan)
+    if keys.pressed(KeyCode::Space) {
+        return;
+    }
+
     if !buttons.just_pressed(MouseButton::Left) {
         return;
     }
@@ -287,7 +295,6 @@ pub fn detectar_clic_nodo(
         return;
     };
 
-    // Ignoramos clics sobre el lienzo si el ratón está en la barra inferior de Chips
     if pos_pantalla.y >= (window.height() - 56.0) {
         return;
     }
@@ -300,7 +307,6 @@ pub fn detectar_clic_nodo(
 
     // MODO CREANDO LÍNEA: Añadir codo o finalizar cable en una Entrada
     if *estado_app.get() == ModoApp::CreandoLinea {
-        // 1. ¿Ha hecho clic sobre un conector de Entrada para terminar el cable?
         for (ent_destino, g_trf, tipo) in q_conectores.iter() {
             let pos_conector = g_trf.translation().truncate();
             if pos_mundo.distance(pos_conector) < config.rad_clic_con {
@@ -311,6 +317,7 @@ pub fn detectar_clic_nodo(
 
                     if !ocupada {
                         if let Some(orig) = estado_linea.origen_entidad {
+                            commands.spawn(PeticionRegistrarUndo);
                             commands.spawn(Cable {
                                 origen: orig,
                                 destino: ent_destino,
@@ -327,8 +334,7 @@ pub fn detectar_clic_nodo(
             }
         }
 
-        // 2. Si clicó en el lienzo vacío, añadimos un codo ajustado a 25px
-        let paso_codo = 25.0;
+        let paso_codo = config.paso_snap_codo;
         let codo_snap = Vec2::new(
             (pos_mundo.x / paso_codo).round() * paso_codo,
             (pos_mundo.y / paso_codo).round() * paso_codo,
@@ -356,6 +362,7 @@ pub fn detectar_clic_nodo(
     for (ent_cable, cable) in q_cables.iter() {
         for (idx, &pos_codo) in cable.puntos_intermedios.iter().enumerate() {
             if pos_mundo.distance(pos_codo) < 10.0 {
+                commands.spawn(PeticionRegistrarUndo);
                 codo_arrastrado.seleccion = Some((ent_cable, idx));
                 return;
             }
@@ -419,11 +426,13 @@ pub fn detectar_clic_nodo(
     for (entidad, trf) in q_nodos.iter() {
         let centro_nodo = trf.translation.truncate();
         if pos_mundo.distance(centro_nodo) < config.rad_clic_nodo {
+            commands.spawn(PeticionRegistrarUndo);
             commands.entity(entidad).insert(Arrastrando);
             return; 
         }
     }
 }
+
 // --- Bloque 3: Soltar Ratón, Codos e Imantar a Barras de Chip ---
 pub fn soltar_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
@@ -452,11 +461,11 @@ pub fn soltar_nodo(
         return;
     }
 
-    // 0. NUEVO: Si estábamos arrastrando el codo de un cable, lo encajamos a 25px y soltamos
+    // 0. Si estábamos arrastrando el codo de un cable, lo encajamos a config.paso_snap_codo (5px)
     if let Some((ent_cable, idx)) = codo_arrastrado.seleccion.take() {
         if let Ok(mut cable) = q_cables.get_mut(ent_cable) {
             if let Some(codo) = cable.puntos_intermedios.get_mut(idx) {
-                let paso_codo = 25.0;
+                let paso_codo = config.paso_snap_codo;
                 codo.x = (codo.x / paso_codo).round() * paso_codo;
                 codo.y = (codo.y / paso_codo).round() * paso_codo;
             }
@@ -478,7 +487,6 @@ pub fn soltar_nodo(
             let x_barra = trf_barra.translation.x;
             let dist_x = (trf.translation.x - x_barra).abs();
 
-            // Si acerca un Interruptor a la barra izquierda (< 60px)
             if *tipo_barra == BarraChip::IzquierdaEntradas 
                 && nodo.tipo == TipoPuerta::Interruptor 
                 && dist_x < 60.0 
@@ -487,7 +495,6 @@ pub fn soltar_nodo(
                 barra_pegada = Some(BarraChip::IzquierdaEntradas);
             }
 
-            // Si acerca un LED a la barra derecha (< 60px)
             if *tipo_barra == BarraChip::DerechaSalidas 
                 && nodo.tipo == TipoPuerta::Led 
                 && dist_x < 60.0 
@@ -509,8 +516,7 @@ pub fn soltar_nodo(
         commands.entity(entidad).remove::<Arrastrando>();
     }
 
-    // 2. Si el usuario arrastró y soltó directamente sobre una Entrada (sin codos),
-    // también permitimos cerrar el cable al soltar el botón
+    // 2. Cerrar cable directo sin codos al soltar sobre una Entrada
     if *estado_app.get() == ModoApp::CreandoLinea 
         && estado_linea.puntos_intermedios.is_empty() 
     {
@@ -534,6 +540,7 @@ pub fn soltar_nodo(
                                 if let Some(orig) = 
                                     estado_linea.origen_entidad 
                                 {
+                                    commands.spawn(PeticionRegistrarUndo);
                                     commands.spawn(Cable {
                                         origen: orig,
                                         destino: ent_destino,
@@ -571,13 +578,11 @@ pub fn mover_nodo_arrastrado(
             cam_trf, 
             pos_pantalla
         ) {
-            // 1. Mover puertas o nodos arrastrados
             for mut trf in q_arrastrando.iter_mut() {
                 trf.translation.x = pos_mundo.x;
                 trf.translation.y = pos_mundo.y;
             }
 
-            // 2. NUEVO: Mover el codo seleccionado en tiempo real
             if let Some((ent_cable, idx)) = codo_arrastrado.seleccion {
                 if let Ok(mut cable) = q_cables.get_mut(ent_cable) {
                     if let Some(codo) = cable.puntos_intermedios.get_mut(idx) {
@@ -612,8 +617,6 @@ pub fn borrar_con_clic_derecho(
         return;
     }
 
-    // Si estábamos tirando un cable con codos, el clic derecho deshace el último codo
-    // o cancela el cable si ya no quedan codos
     if *estado_app.get() == ModoApp::CreandoLinea {
         if estado_linea.puntos_intermedios.pop().is_none() {
             next_state.set(ModoApp::Edicion);
@@ -621,7 +624,6 @@ pub fn borrar_con_clic_derecho(
         return;
     }
 
-    // Si ya había un menú o submenú abierto, los cerramos primero
     for ent_menu in q_menu.iter() {
         commands.entity(ent_menu).despawn();
     }
@@ -641,25 +643,34 @@ pub fn borrar_con_clic_derecho(
             for (ent_nodo, trf) in q_nodos.iter() {
                 let centro = trf.translation.truncate();
                 if pos_mundo.distance(centro) < config.rad_clic_nodo {
+                    commands.spawn(PeticionRegistrarUndo);
                     commands.entity(ent_nodo).despawn();
                     return;
                 }
             }
 
-            // 2A. NUEVO: Si hace clic derecho exactamente sobre un codo (< 10px),
-            // borramos SOLO ese codo sin destruir el cable entero
-            for (_, mut cable) in q_cables.iter_mut() {
+            // 2A. Borrar SOLO un codo si hace clic derecho sobre la esquina
+            let mut codo_a_borrar = None;
+            for (ent_c, cable) in q_cables.iter() {
                 if let Some(idx) = cable
                     .puntos_intermedios
                     .iter()
                     .position(|&c| pos_mundo.distance(c) < 10.0)
                 {
-                    cable.puntos_intermedios.remove(idx);
-                    return;
+                    codo_a_borrar = Some((ent_c, idx));
+                    break;
                 }
             }
 
-            // 2B. Si hace clic derecho sobre un tramo recto del cable, borramos el cable
+            if let Some((ent_c, idx)) = codo_a_borrar {
+                commands.spawn(PeticionRegistrarUndo);
+                if let Ok((_, mut cable)) = q_cables.get_mut(ent_c) {
+                    cable.puntos_intermedios.remove(idx);
+                }
+                return;
+            }
+
+            // 2B. Borrar el cable entero si hace clic derecho sobre un tramo recto
             for (ent_cable, cable) in q_cables.iter() {
                 if let (Ok(trf_ori), Ok(trf_des)) = (
                     q_global_trf.get(cable.origen),
@@ -682,6 +693,7 @@ pub fn borrar_con_clic_derecho(
                             let t = (ap.dot(ab) / len_sq).clamp(0.0, 1.0);
                             let cercano = a + ab * t;
                             if pos_mundo.distance(cercano) < 8.0 {
+                                commands.spawn(PeticionRegistrarUndo);
                                 commands.entity(ent_cable).despawn();
                                 return;
                             }
@@ -696,10 +708,7 @@ pub fn borrar_con_clic_derecho(
     }
 }
 
-// ==========================================
-// Fichero: src/raton.rs
-// Bloque: Bloque 6: Creador del Menú Principal y Submenús
-// ==========================================
+// --- Bloque 6: Creador del Menú Principal y Submenús ---
 fn abrir_menu_contextual(
     commands: &mut Commands, 
     pos: Vec2
@@ -848,4 +857,70 @@ fn abrir_submenu(
             });
         }
     });
+}
+
+// ==========================================
+// Fichero: src/raton.rs
+// Bloque: Bloque 7: Movimiento (Pan) y Zoom de la Cámara en Lienzo Infinito (NUEVO)
+// ==========================================
+pub fn controlar_camara(
+    time: Res<Time>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut ev_motion: MessageReader<MouseMotion>,
+    mut ev_scroll: MessageReader<MouseWheel>,
+    q_dialogo: Query<Entity, With<DialogoArchivo>>,
+    mut q_cam: Query<&mut Transform, With<CamaraPrincipal>>,
+) {
+    let Ok(mut cam_trf) = q_cam.single_mut() else {
+        return;
+    };
+
+    // 1. Calcular el delta acumulado del ratón en este frame
+    let mut delta_raton = Vec2::ZERO;
+    for ev in ev_motion.read() {
+        delta_raton += ev.delta;
+    }
+
+    // 2. PAN CON RATÓN: Botón central (rueda pulsada) o Espacio + Clic Izquierdo
+    let arrastrando_lienzo = buttons.pressed(MouseButton::Middle)
+        || (keys.pressed(KeyCode::Space) && buttons.pressed(MouseButton::Left));
+
+    if arrastrando_lienzo {
+        let escala_actual = cam_trf.scale.x;
+        cam_trf.translation.x -= delta_raton.x * escala_actual;
+        cam_trf.translation.y += delta_raton.y * escala_actual;
+    }
+
+    // 3. PAN CON TECLADO: Flechas de dirección y tecla Home para centrar en (0,0)
+    if q_dialogo.is_empty() {
+        let vel_pan = 500.0 * time.delta_secs() * cam_trf.scale.x;
+        if keys.pressed(KeyCode::ArrowLeft) {
+            cam_trf.translation.x -= vel_pan;
+        }
+        if keys.pressed(KeyCode::ArrowRight) {
+            cam_trf.translation.x += vel_pan;
+        }
+        if keys.pressed(KeyCode::ArrowUp) {
+            cam_trf.translation.y += vel_pan;
+        }
+        if keys.pressed(KeyCode::ArrowDown) {
+            cam_trf.translation.y -= vel_pan;
+        }
+        // Tecla Inicio (Home) devuelve la cámara al origen (0, 0) con zoom 1.0
+        if keys.just_pressed(KeyCode::Home) {
+            cam_trf.translation.x = 0.0;
+            cam_trf.translation.y = 0.0;
+            cam_trf.scale = Vec3::ONE;
+        }
+    }
+
+    // 4. ZOOM CON LA RUEDA DEL RATÓN (MouseWheel)
+    for ev in ev_scroll.read() {
+        if ev.y.abs() > 0.001 {
+            let factor = if ev.y > 0.0 { 0.90 } else { 1.10 };
+            let nueva_escala = (cam_trf.scale.x * factor).clamp(0.25, 4.0);
+            cam_trf.scale = Vec3::new(nueva_escala, nueva_escala, 1.0);
+        }
+    }
 }

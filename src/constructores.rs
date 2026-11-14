@@ -180,6 +180,8 @@ fn crear_malla_arco_xor(
     mesh
 }
 
+
+// (función crear_puerta)
 pub fn crear_puerta(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
@@ -212,7 +214,8 @@ pub fn crear_puerta(
         TipoPuerta::Xor | TipoPuerta::Xnor
     );
 
-    let mat_borde = materials.add(Color::BLACK);
+    let col_borde = config.col_patilla;
+    let mat_borde = materials.add(col_borde);
     let mat_relleno = materials.add(Color::WHITE);
 
     let mut ent_salida = None;
@@ -228,11 +231,11 @@ pub fn crear_puerta(
         NodoLogico { tipo: tipo_puerta },
     ))
     .with_children(|padre| {
-        // 1. Dibujamos las líneas negras de las patillas (pines metálicos)
+        // 1. Dibujamos las líneas de las patillas usando config.col_patilla
         if tipo_puerta == TipoPuerta::Not {
             padre.spawn((
                 Sprite {
-                    color: Color::BLACK,
+                    color: col_borde,
                     custom_size: Some(Vec2::new(26.0, 3.5)),
                     ..default()
                 },
@@ -242,7 +245,7 @@ pub fn crear_puerta(
             // Patilla superior (Y = +15.0)
             padre.spawn((
                 Sprite {
-                    color: Color::BLACK,
+                    color: col_borde,
                     custom_size: Some(Vec2::new(28.0, 3.5)),
                     ..default()
                 },
@@ -251,7 +254,7 @@ pub fn crear_puerta(
             // Patilla inferior (Y = -15.0)
             padre.spawn((
                 Sprite {
-                    color: Color::BLACK,
+                    color: col_borde,
                     custom_size: Some(Vec2::new(28.0, 3.5)),
                     ..default()
                 },
@@ -262,14 +265,14 @@ pub fn crear_puerta(
         // Patilla de salida derecha (Y = 0.0)
         padre.spawn((
             Sprite {
-                color: Color::BLACK,
+                color: col_borde,
                 custom_size: Some(Vec2::new(26.0, 3.5)),
                 ..default()
             },
             Transform::from_xyz(35.0, 0.0, 0.02),
         ));
 
-        // 2. Cuerpo vectorial según la familia de puerta (Borde negro + Relleno blanco)
+        // 2. Cuerpo vectorial según la familia de puerta
         match tipo_puerta {
             TipoPuerta::Not => {
                 let pts_ext = [
@@ -350,7 +353,6 @@ pub fn crear_puerta(
                     Transform::from_xyz(0.0, 0.0, 0.10),
                 ));
 
-                // Si es XOR o XNOR, añadimos el arco curvo independiente detrás
                 if es_xor {
                     let malla_arco = crear_malla_arco_xor(
                         -29.0, 
@@ -387,7 +389,7 @@ pub fn crear_puerta(
             ));
         }
 
-        // 4. Etiqueta de texto en negro nítido en el centro de la puerta
+        // 4. Etiqueta de texto en el centro de la puerta
         if tipo_puerta != TipoPuerta::Not {
             let x_txt = if es_xor { 1.0 } else { -2.0 };
             padre.spawn((
@@ -396,7 +398,7 @@ pub fn crear_puerta(
                     font_size: bevy::text::FontSize::Px(13.0),
                     ..default()
                 },
-                TextColor(Color::BLACK),
+                TextColor(col_borde),
                 Transform::from_xyz(x_txt, 0.0, 0.20),
             ));
         }

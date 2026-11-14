@@ -38,6 +38,12 @@ pub struct PilaInspeccion {
     pub niveles: Vec<(String, String)>,
 }
 
+// Pila de estados anteriores del lienzo para deshacer con Ctrl+Z (Undo)
+#[derive(Resource, Default)]
+pub struct HistorialUndo {
+    pub estados: Vec<String>,
+}
+
 // ==========================================
 // Fichero: src/componentes.rs
 // Bloque: Bloque 4: Componentes de Nodos y Barras de Chip
@@ -99,7 +105,7 @@ pub struct InstanciaChip {
     pub estados_nodos: Vec< Vec<bool> >,
 }
 
-// NUEVO: Pequeño botón dentro del Chip para entrar a ver su circuito interno
+// Pequeño botón dentro del Chip para entrar a ver su circuito interno
 #[derive(Component)]
 pub struct BotonVerInteriorChip {
     pub archivo_chp: String,
@@ -159,6 +165,10 @@ pub struct Arrastrando;
 
 #[derive(Component)]
 pub struct CamaraPrincipal;
+
+// NUEVO: Identifica el contenedor de la cuadrícula que acompaña a la cámara
+#[derive(Component)]
+pub struct CuadriculaFondo;
 
 // --- Bloque 5: Componentes de Conectores ---
 #[derive(Component, PartialEq, Eq, Clone, Copy)]

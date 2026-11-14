@@ -1,0 +1,38 @@
+Funciona pero hay detalles que habría que tener en cuenta:
+a) En el circuito que me has dado (el sumador simple) se superponen las pistas (hilos) y dan la falsa impresión de que tienen continuidad electrica cuando realmente unas están pasando por encima de otras sin conexión electrica. Eso confunde, lo malo es que para que no ocurra eso a lo mejor hay que dibujar líneas con pequeños angulos...piensalo por si se te ocurre alguna alternativa.
+b) En el vídeo pone nombre a las conexiones, seria conveniente estudiar esa posibilidad.
+c) Las patillas negras de las puertas casi no se ven, se confunden en el fondo oscuro, posiblemente habría que buscar un gris más claro de fondo, de todas formas iria bien una constante en el código y poder modificarla para ver diferentes resultados.
+d) En los circuitos que me has dado si edito un punto de conexión (lo muevo), luego debido al snap no puede volver al mismo sitio donde estaba.
+e) Estaria bien tener un CTRL-Z (UNDO) para volver atrás en cualquier modificación
+
+----------------------------
+he puesto estos valores para el color del fondo y el color del "1" (Verde):
+// --- Bloque 3: Valores por Defecto ---
+impl Default for ConfigApp {
+    fn default() -> Self {
+        Self {
+            tam_puerta: Vec2::new(100.0, 60.0),
+            tam_conector: Vec2::new(12.0, 12.0),
+
+            rad_clic_con: 12.0,
+            rad_clic_nodo: 35.0,
+            // Con 5.0 los codos encajan exactos tanto en la rejilla (50) como en patillas (+-15)
+            paso_snap_codo: 5.0,
+
+            // Fondo gris azulado más claro para que destaquen las puertas y patillas
+            col_fondo: Color::srgb(0.90, 0.92, 0.96),
+            col_cuadricula: Color::srgb(0.28, 0.30, 0.35),
+            col_puerta: Color::srgb(0.35, 0.38, 0.44),
+            // Color de las patillas y bordes de puertas (puedes probar Color::BLACK o gris claro)
+            col_patilla: Color::srgb(0.08, 0.08, 0.10),
+            col_con_hueco: Color::srgb(0.60, 0.62, 0.66),
+            col_cable_tmp: Color::srgb(0.95, 0.85, 0.25),
+
+            // Rojo para 0, Verde brillante para 1
+            col_estado_0: Color::srgb(0.85, 0.20, 0.20),
+            col_estado_1: Color::srgb(0.0, 0.6, 0.0),
+        }
+    }
+}
+
+Ahora lo que ocurre es que veo los hilos (cables) de unión entre elementos demasido finos, casi se confunden con la malla del fondo. Lo mismo, seria conveniente un valor constante y poder cambiarlo para ver que queda mejor.El UNDO repasalo, hace cosas raras, a veces va otra no. La modificación del snap bien y salen arcos por encima de las conexiones y círculos con las conexiones.
