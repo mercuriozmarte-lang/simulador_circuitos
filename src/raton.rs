@@ -17,9 +17,13 @@ use crate::{
     crear_led,
     crear_reloj,
     crear_display,
+    crear_barras_chip,
 };
 
-// --- Bloque 2A: Gestión de Hover y Clics en el Menú Contextual ---
+// ==========================================
+// Fichero: src/raton.rs
+// Bloque: Bloque 2A: Gestión de Hover y Clics en el Menú Contextual
+// ==========================================
 pub fn gestionar_clic_menu(
     buttons: Res<ButtonInput<MouseButton>>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
@@ -29,6 +33,7 @@ pub fn gestionar_clic_menu(
     >,
     q_nodos: Query<Entity, With<NodoLogico>>,
     q_cables: Query<Entity, With<Cable>>,
+    q_barras: Query<Entity, With<BarraChip>>,
     q_menu: Query<(Entity, &Transform, &MenuContextual)>,
     q_submenu: Query<(Entity, &SubMenuContextual)>,
     mut q_botones_menu: Query<(&BotonMenu, &mut Sprite)>,
@@ -55,8 +60,6 @@ pub fn gestionar_clic_menu(
         return;
     };
 
-    // Comprobamos sobre qué botón del menú o submenú está el ratón ahora mismo
-    // usando su coordenada mundial exacta (sin depender de GlobalTransform)
     let mut accion_bajo_cursor = None;
     let mitad_ancho = 65.0;
     let mitad_alto = 16.0;
@@ -68,15 +71,13 @@ pub fn gestionar_clic_menu(
 
         if dentro_x && dentro_y {
             accion_bajo_cursor = Some(btn_menu.accion);
-            // Iluminamos el botón bajo el cursor para dar feedback visual claro
             sprite.color = Color::srgb(0.38, 0.48, 0.62);
         } else {
             sprite.color = Color::srgb(0.24, 0.28, 0.36);
         }
     }
 
-    // 1. HOVER AUTOMÁTICO: Si el cursor está sobre una categoría principal,
-    // abrimos su submenú a la derecha inmediatamente
+    // 1. HOVER AUTOMÁTICO: Desplegar submenú
     if let Some(AccionMenu::AbrirCategoria(cat)) = accion_bajo_cursor {
         let mut ya_abierto = false;
         for (ent_sub, sub) in q_submenu.iter() {
@@ -93,7 +94,7 @@ pub fn gestionar_clic_menu(
         }
     }
 
-    // 2. CLIC IZQUIERDO: Ejecutamos la acción del submenú o cerramos si clica fuera
+    // 2. CLIC IZQUIERDO
     if !buttons.just_pressed(MouseButton::Left) {
         return;
     }
@@ -101,8 +102,6 @@ pub fn gestionar_clic_menu(
     if let Some(accion) = accion_bajo_cursor {
         match accion {
             AccionMenu::AbrirCategoria(cat) => {
-                // Si también hace clic en la categoría, abrimos su submenú
-                // y mantenemos el menú abierto
                 for (ent_sub, sub) in q_submenu.iter() {
                     if sub.categoria != cat {
                         commands.entity(ent_sub).despawn();
@@ -124,9 +123,15 @@ pub fn gestionar_clic_menu(
                 match tipo {
                     TipoPuerta::And 
                     | TipoPuerta::Or 
-                    | TipoPuerta::Not => {
+                    | TipoPuerta::Not 
+                    | TipoPuerta::Nand 
+                    | TipoPuerta::Nor 
+                    | TipoPuerta::Xor 
+                    | TipoPuerta::Xnor => {
                         crear_puerta(
-                            &mut commands, 
+                            &mut commands,
+                            &mut meshes,
+                            &mut materials,
                             pos_snap, 
                             tipo, 
                             &config
@@ -179,6 +184,15 @@ pub fn gestionar_clic_menu(
                     }
                 }
             }
+            AccionMenu::AlternarBarrasChip => {
+                if q_barras.is_empty() {
+                    crear_barras_chip(&mut commands);
+                } else {
+                    for ent_b in q_barras.iter() {
+                        commands.entity(ent_b).despawn();
+                    }
+                }
+            }
             AccionMenu::GuardarCircuito => {
                 abrir_dialogo_archivo(&mut commands, true);
             }
@@ -196,14 +210,13 @@ pub fn gestionar_clic_menu(
         }
     }
 
-    // Cerramos menú principal y submenú tras ejecutar una acción final o clicar fuera
     commands.entity(ent_menu).despawn();
     for (ent_sub, _) in q_submenu.iter() {
         commands.entity(ent_sub).despawn();
     }
 }
 
-// --- Bloque 2B: Clic en Nodos y Conectores ---
+// --- Bloque 2B: Clic en Nodos, Conectores y Codos de Cable ---
 pub fn detectar_clic_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
@@ -211,7 +224,6 @@ pub fn detectar_clic_nodo(
         (&Camera, &GlobalTransform), 
         With<CamaraPrincipal>
     >,
-    // Si hay un menú, diálogo o selector de carga abierto, ignoramos clics sobre el lienzo
     q_ui_abierta: Query<
         Entity, 
         Or<(
@@ -224,18 +236,19 @@ pub fn detectar_clic_nodo(
     q_conectores: Query<
         (Entity, &GlobalTransform, &TipoConector)
     >,
-    // Consulta para el cuadrado interactivo del interruptor
+    q_cables: Query<(Entity, &Cable)>,
     mut q_botones: Query<
         (&GlobalTransform, &mut BotonInterruptor, &mut Sprite),
         Without<ControlReloj>,
     >,
-    // Consulta para el cuadrado interactivo de frecuencia del reloj
     mut q_relojes: Query<
         (&GlobalTransform, &mut ControlReloj, &mut Sprite, &Children),
         Without<BotonInterruptor>,
     >,
     mut q_textos_reloj: Query<&mut Text2d, With<TextoReloj>>,
+    estado_app: Res<State<ModoApp>>,
     mut estado_linea: ResMut<EstadoCrearLinea>,
+    mut codo_arrastrado: ResMut<CodoArrastrado>,
     mut next_state: ResMut<NextState<ModoApp>>,
     mut commands: Commands,
     config: Res<ConfigApp>,
@@ -244,7 +257,6 @@ pub fn detectar_clic_nodo(
         return;
     }
 
-    // Si había una ventana emergente en pantalla, no interactuamos con las puertas de debajo
     if !q_ui_abierta.is_empty() {
         return;
     }
@@ -252,98 +264,152 @@ pub fn detectar_clic_nodo(
     let Ok(window) = q_windows.single() else { return; };
     let Ok((cam, cam_trf)) = q_camera.single() else { return; };
 
-    if let Some(pos_pantalla) = window.cursor_position() {
-        if let Ok(pos_mundo) = cam.viewport_to_world_2d(
-            cam_trf, 
-            pos_pantalla
-        ) {
-            // 1. Prioridad 1: Clic en conectores para tirar cables
-            for (ent_conector, g_trf, tipo) in q_conectores.iter() {
-                let pos_conector = g_trf.translation().truncate();
-                
-                let dist = pos_mundo.distance(pos_conector);
-                if dist < config.rad_clic_con {
-                    if *tipo == TipoConector::Salida {
-                        estado_linea.origen_entidad = Some(ent_conector);
-                        estado_linea.origen_pos = pos_conector;
-                        next_state.set(ModoApp::CreandoLinea);
-                        return; 
-                    }
-                }
-            }
+    let Some(pos_pantalla) = window.cursor_position() else {
+        return;
+    };
+    let Ok(pos_mundo) = cam.viewport_to_world_2d(
+        cam_trf, 
+        pos_pantalla
+    ) else {
+        return;
+    };
 
-            // 2. Prioridad 2: Clic en el cuadrado de cambio de estado (0 / 1)
-            for (g_trf, mut boton, mut sprite) in q_botones.iter_mut() {
-                let pos_boton = g_trf.translation().truncate();
-                if (pos_mundo.x - pos_boton.x).abs() < 13.0 
-                    && (pos_mundo.y - pos_boton.y).abs() < 13.0 
-                {
-                    boton.estado = !boton.estado;
-                    if boton.estado {
-                        sprite.color = config.col_estado_1;
-                    } else {
-                        sprite.color = config.col_estado_0;
-                    }
-                    return;
-                }
-            }
+    // MODO CREANDO LÍNEA: Añadir codo o finalizar cable en una Entrada
+    if *estado_app.get() == ModoApp::CreandoLinea {
+        // 1. ¿Ha hecho clic sobre un conector de Entrada para terminar el cable?
+        for (ent_destino, g_trf, tipo) in q_conectores.iter() {
+            let pos_conector = g_trf.translation().truncate();
+            if pos_mundo.distance(pos_conector) < config.rad_clic_con {
+                if *tipo == TipoConector::Entrada {
+                    let ocupada = q_cables
+                        .iter()
+                        .any(|(_, c)| c.destino == ent_destino);
 
-            // 2B. Prioridad 2B: Clic en el cuadrado de frecuencia del Reloj
-            let etiquetas_frec = ["OFF", "1Hz", "2Hz", "5Hz", "10Hz"];
-            for (g_trf, mut reloj, mut sprite, hijos) in q_relojes.iter_mut() {
-                let pos_ctrl = g_trf.translation().truncate();
-                if (pos_mundo.x - pos_ctrl.x).abs() < 17.0 
-                    && (pos_mundo.y - pos_ctrl.y).abs() < 13.0 
-                {
-                    reloj.indice_frec = 
-                        (reloj.indice_frec + 1) % etiquetas_frec.len();
-                    reloj.acumulador = 0.0;
-
-                    if reloj.indice_frec == 0 {
-                        reloj.estado = false;
-                        sprite.color = config.col_estado_0;
-                    }
-
-                    for hijo in hijos.iter() {
-                        if let Ok(mut txt) = q_textos_reloj.get_mut(hijo) {
-                            txt.0 = 
-                                etiquetas_frec[reloj.indice_frec].to_string();
+                    if !ocupada {
+                        if let Some(orig) = estado_linea.origen_entidad {
+                            commands.spawn(Cable {
+                                origen: orig,
+                                destino: ent_destino,
+                                puntos_intermedios: estado_linea
+                                    .puntos_intermedios
+                                    .clone(),
+                            });
                         }
                     }
+                    estado_linea.puntos_intermedios.clear();
+                    next_state.set(ModoApp::Edicion);
                     return;
                 }
             }
+        }
 
-            // 3. Prioridad 3: Clic en el resto del elemento para moverlo
-            for (entidad, trf) in q_nodos.iter() {
-                let centro_nodo = trf.translation.truncate();
-                if pos_mundo.distance(centro_nodo) < config.rad_clic_nodo {
-                    commands.entity(entidad).insert(Arrastrando);
-                    return; 
+        // 2. Si clicó en el lienzo vacío, añadimos un codo ajustado a 25px
+        let paso_codo = 25.0;
+        let codo_snap = Vec2::new(
+            (pos_mundo.x / paso_codo).round() * paso_codo,
+            (pos_mundo.y / paso_codo).round() * paso_codo,
+        );
+        estado_linea.puntos_intermedios.push(codo_snap);
+        return;
+    }
+
+    // MODO EDICIÓN NORMAL:
+    // 1. Prioridad 1: Clic en conector de Salida para empezar un cable
+    for (ent_conector, g_trf, tipo) in q_conectores.iter() {
+        let pos_conector = g_trf.translation().truncate();
+        if pos_mundo.distance(pos_conector) < config.rad_clic_con {
+            if *tipo == TipoConector::Salida {
+                estado_linea.origen_entidad = Some(ent_conector);
+                estado_linea.origen_pos = pos_conector;
+                estado_linea.puntos_intermedios.clear();
+                next_state.set(ModoApp::CreandoLinea);
+                return; 
+            }
+        }
+    }
+
+    // 1B. NUEVO: Clic sobre una esquina (codo) de un cable ya creado para moverla
+    for (ent_cable, cable) in q_cables.iter() {
+        for (idx, &pos_codo) in cable.puntos_intermedios.iter().enumerate() {
+            if pos_mundo.distance(pos_codo) < 10.0 {
+                codo_arrastrado.seleccion = Some((ent_cable, idx));
+                return;
+            }
+        }
+    }
+
+    // 2. Prioridad 2: Clic en el cuadrado de cambio de estado (0 / 1)
+    for (g_trf, mut boton, mut sprite) in q_botones.iter_mut() {
+        let pos_boton = g_trf.translation().truncate();
+        if (pos_mundo.x - pos_boton.x).abs() < 13.0 
+            && (pos_mundo.y - pos_boton.y).abs() < 13.0 
+        {
+            boton.estado = !boton.estado;
+            if boton.estado {
+                sprite.color = config.col_estado_1;
+            } else {
+                sprite.color = config.col_estado_0;
+            }
+            return;
+        }
+    }
+
+    // 2B. Prioridad 2B: Clic en el cuadrado de frecuencia del Reloj
+    let etiquetas_frec = ["OFF", "1Hz", "2Hz", "5Hz", "10Hz"];
+    for (g_trf, mut reloj, mut sprite, hijos) in q_relojes.iter_mut() {
+        let pos_ctrl = g_trf.translation().truncate();
+        if (pos_mundo.x - pos_ctrl.x).abs() < 17.0 
+            && (pos_mundo.y - pos_ctrl.y).abs() < 13.0 
+        {
+            reloj.indice_frec = 
+                (reloj.indice_frec + 1) % etiquetas_frec.len();
+            reloj.acumulador = 0.0;
+
+            if reloj.indice_frec == 0 {
+                reloj.estado = false;
+                sprite.color = config.col_estado_0;
+            }
+
+            for hijo in hijos.iter() {
+                if let Ok(mut txt) = q_textos_reloj.get_mut(hijo) {
+                    txt.0 = 
+                        etiquetas_frec[reloj.indice_frec].to_string();
                 }
             }
+            return;
+        }
+    }
+
+    // 3. Prioridad 3: Clic en el cuerpo del nodo para arrastrarlo
+    for (entidad, trf) in q_nodos.iter() {
+        let centro_nodo = trf.translation.truncate();
+        if pos_mundo.distance(centro_nodo) < config.rad_clic_nodo {
+            commands.entity(entidad).insert(Arrastrando);
+            return; 
         }
     }
 }
 
-// --- Bloque 3: Soltar Ratón ---
+// --- Bloque 3: Soltar Ratón, Codos e Imantar a Barras de Chip ---
 pub fn soltar_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
     mut q_arrastrando: Query<
-        (Entity, &mut Transform), 
+        (Entity, &mut Transform, &NodoLogico), 
         With<Arrastrando>
     >,
+    q_barras: Query<(&Transform, &BarraChip), Without<Arrastrando>>,
     q_conectores: Query<
         (Entity, &GlobalTransform, &TipoConector)
     >,
-    q_cables: Query<&Cable>,
+    mut q_cables: Query<&mut Cable>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
     q_camera: Query<
         (&Camera, &GlobalTransform), 
         With<CamaraPrincipal>
     >,
     estado_app: Res<State<ModoApp>>,
-    estado_linea: Res<EstadoCrearLinea>,
+    mut estado_linea: ResMut<EstadoCrearLinea>,
+    mut codo_arrastrado: ResMut<CodoArrastrado>,
     mut next_state: ResMut<NextState<ModoApp>>,
     mut commands: Commands,
     config: Res<ConfigApp>,
@@ -352,28 +418,70 @@ pub fn soltar_nodo(
         return;
     }
 
-    // 1. Soltar nodos y aplicar el encaje magnético (Snap to Grid)
-    for (entidad, mut trf) in q_arrastrando.iter_mut() {
+    // 0. NUEVO: Si estábamos arrastrando el codo de un cable, lo encajamos a 25px y soltamos
+    if let Some((ent_cable, idx)) = codo_arrastrado.seleccion.take() {
+        if let Ok(mut cable) = q_cables.get_mut(ent_cable) {
+            if let Some(codo) = cable.puntos_intermedios.get_mut(idx) {
+                let paso_codo = 25.0;
+                codo.x = (codo.x / paso_codo).round() * paso_codo;
+                codo.y = (codo.y / paso_codo).round() * paso_codo;
+            }
+        }
+        return;
+    }
+
+    // 1. Soltar nodos arrastrados y comprobar si se pegan a una Barra de Chip
+    for (entidad, mut trf, nodo) in q_arrastrando.iter_mut() {
         let cuadricula = 50.0;
-        
-        trf.translation.x = 
+        let mut x_final = 
             (trf.translation.x / cuadricula).round() * cuadricula;
-        trf.translation.y = 
+        let y_final = 
             (trf.translation.y / cuadricula).round() * cuadricula;
-        
+
+        let mut barra_pegada = None;
+
+        for (trf_barra, tipo_barra) in q_barras.iter() {
+            let x_barra = trf_barra.translation.x;
+            let dist_x = (trf.translation.x - x_barra).abs();
+
+            // Si acerca un Interruptor a la barra izquierda (< 60px)
+            if *tipo_barra == BarraChip::IzquierdaEntradas 
+                && nodo.tipo == TipoPuerta::Interruptor 
+                && dist_x < 60.0 
+            {
+                x_final = x_barra;
+                barra_pegada = Some(BarraChip::IzquierdaEntradas);
+            }
+
+            // Si acerca un LED a la barra derecha (< 60px)
+            if *tipo_barra == BarraChip::DerechaSalidas 
+                && nodo.tipo == TipoPuerta::Led 
+                && dist_x < 60.0 
+            {
+                x_final = x_barra;
+                barra_pegada = Some(BarraChip::DerechaSalidas);
+            }
+        }
+
+        trf.translation.x = x_final;
+        trf.translation.y = y_final;
+
+        if let Some(b) = barra_pegada {
+            commands.entity(entidad).insert(PegadoABarra(b));
+        } else {
+            commands.entity(entidad).remove::<PegadoABarra>();
+        }
+
         commands.entity(entidad).remove::<Arrastrando>();
     }
 
-    // 2. Lógica de conexión de cables
-    if *estado_app.get() == ModoApp::CreandoLinea {
-        let Ok(window) = q_windows.single() else { 
-            next_state.set(ModoApp::Edicion);
-            return; 
-        };
-        let Ok((cam, cam_trf)) = q_camera.single() else { 
-            next_state.set(ModoApp::Edicion);
-            return; 
-        };
+    // 2. Si el usuario arrastró y soltó directamente sobre una Entrada (sin codos),
+    // también permitimos cerrar el cable al soltar el botón
+    if *estado_app.get() == ModoApp::CreandoLinea 
+        && estado_linea.puntos_intermedios.is_empty() 
+    {
+        let Ok(window) = q_windows.single() else { return; };
+        let Ok((cam, cam_trf)) = q_camera.single() else { return; };
 
         if let Some(pos_pantalla) = window.cursor_position() {
             if let Ok(pos_mundo) = cam.viewport_to_world_2d(
@@ -382,9 +490,7 @@ pub fn soltar_nodo(
             ) {
                 for (ent_destino, g_trf, tipo) in q_conectores.iter() {
                     let pos_conector = g_trf.translation().truncate();
-                    
-                    let dist = pos_mundo.distance(pos_conector);
-                    if dist < config.rad_clic_con {
+                    if pos_mundo.distance(pos_conector) < config.rad_clic_con {
                         if *tipo == TipoConector::Entrada {
                             let entrada_ocupada = q_cables
                                 .iter()
@@ -397,21 +503,22 @@ pub fn soltar_nodo(
                                     commands.spawn(Cable {
                                         origen: orig,
                                         destino: ent_destino,
+                                        puntos_intermedios: Vec::new(),
                                     });
                                 }
                             }
-                            break;
+                            estado_linea.puntos_intermedios.clear();
+                            next_state.set(ModoApp::Edicion);
+                            return;
                         }
                     }
                 }
             }
         }
-        
-        next_state.set(ModoApp::Edicion);
     }
 }
 
-// --- Bloque 4: Mover Nodo Arrastrado ---
+// --- Bloque 4: Mover Nodo o Codo Arrastrado ---
 pub fn mover_nodo_arrastrado(
     q_windows: Query<&Window, With<PrimaryWindow>>,
     q_camera: Query<
@@ -419,6 +526,8 @@ pub fn mover_nodo_arrastrado(
         With<CamaraPrincipal>
     >,
     mut q_arrastrando: Query<&mut Transform, With<Arrastrando>>,
+    codo_arrastrado: Res<CodoArrastrado>,
+    mut q_cables: Query<&mut Cable>,
 ) {
     let Ok(window) = q_windows.single() else { return; };
     let Ok((cam, cam_trf)) = q_camera.single() else { return; };
@@ -428,15 +537,25 @@ pub fn mover_nodo_arrastrado(
             cam_trf, 
             pos_pantalla
         ) {
+            // 1. Mover puertas o nodos arrastrados
             for mut trf in q_arrastrando.iter_mut() {
                 trf.translation.x = pos_mundo.x;
                 trf.translation.y = pos_mundo.y;
+            }
+
+            // 2. NUEVO: Mover el codo seleccionado en tiempo real
+            if let Some((ent_cable, idx)) = codo_arrastrado.seleccion {
+                if let Ok(mut cable) = q_cables.get_mut(ent_cable) {
+                    if let Some(codo) = cable.puntos_intermedios.get_mut(idx) {
+                        *codo = pos_mundo;
+                    }
+                }
             }
         }
     }
 }
 
-// --- Bloque 5: Borrar o Abrir Menú con Clic Derecho ---
+// --- Bloque 5: Borrar Nodo, Codo, Cable o Abrir Menú con Clic Derecho ---
 pub fn borrar_con_clic_derecho(
     buttons: Res<ButtonInput<MouseButton>>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
@@ -445,14 +564,26 @@ pub fn borrar_con_clic_derecho(
         With<CamaraPrincipal>
     >,
     q_nodos: Query<(Entity, &Transform), With<NodoLogico>>,
-    q_cables: Query<(Entity, &Cable)>,
+    mut q_cables: Query<(Entity, &mut Cable)>,
     q_global_trf: Query<&GlobalTransform>,
     q_menu: Query<Entity, With<MenuContextual>>,
     q_submenu: Query<Entity, With<SubMenuContextual>>,
+    estado_app: Res<State<ModoApp>>,
+    mut estado_linea: ResMut<EstadoCrearLinea>,
+    mut next_state: ResMut<NextState<ModoApp>>,
     mut commands: Commands,
     config: Res<ConfigApp>,
 ) {
     if !buttons.just_pressed(MouseButton::Right) {
+        return;
+    }
+
+    // Si estábamos tirando un cable con codos, el clic derecho deshace el último codo
+    // o cancela el cable si ya no quedan codos
+    if *estado_app.get() == ModoApp::CreandoLinea {
+        if estado_linea.puntos_intermedios.pop().is_none() {
+            next_state.set(ModoApp::Edicion);
+        }
         return;
     }
 
@@ -481,24 +612,46 @@ pub fn borrar_con_clic_derecho(
                 }
             }
 
-            // 2. Si no tocamos puerta, comprobamos si tocamos algún cable
+            // 2A. NUEVO: Si hace clic derecho exactamente sobre un codo (< 10px),
+            // borramos SOLO ese codo sin destruir el cable entero
+            for (_, mut cable) in q_cables.iter_mut() {
+                if let Some(idx) = cable
+                    .puntos_intermedios
+                    .iter()
+                    .position(|&c| pos_mundo.distance(c) < 10.0)
+                {
+                    cable.puntos_intermedios.remove(idx);
+                    return;
+                }
+            }
+
+            // 2B. Si hace clic derecho sobre un tramo recto del cable, borramos el cable
             for (ent_cable, cable) in q_cables.iter() {
                 if let (Ok(trf_ori), Ok(trf_des)) = (
                     q_global_trf.get(cable.origen),
                     q_global_trf.get(cable.destino),
                 ) {
-                    let a = trf_ori.translation().truncate();
-                    let b = trf_des.translation().truncate();
+                    let mut puntos = Vec::new();
+                    puntos.push(trf_ori.translation().truncate());
+                    for &codo in cable.puntos_intermedios.iter() {
+                        puntos.push(codo);
+                    }
+                    puntos.push(trf_des.translation().truncate());
 
-                    let ab = b - a;
-                    let ap = pos_mundo - a;
-                    let t = (ap.dot(ab) / ab.length_squared())
-                        .clamp(0.0, 1.0);
-                    let punto_mas_cercano = a + ab * t;
-
-                    if pos_mundo.distance(punto_mas_cercano) < 8.0 {
-                        commands.entity(ent_cable).despawn();
-                        return;
+                    for ventana_pts in puntos.windows(2) {
+                        let a = ventana_pts[0];
+                        let b = ventana_pts[1];
+                        let ab = b - a;
+                        let len_sq = ab.length_squared();
+                        if len_sq > 0.001 {
+                            let ap = pos_mundo - a;
+                            let t = (ap.dot(ab) / len_sq).clamp(0.0, 1.0);
+                            let cercano = a + ab * t;
+                            if pos_mundo.distance(cercano) < 8.0 {
+                                commands.entity(ent_cable).despawn();
+                                return;
+                            }
+                        }
                     }
                 }
             }
@@ -518,6 +671,7 @@ fn abrir_menu_contextual(
         ("Puertas  >>", AccionMenu::AbrirCategoria(CategoriaMenu::Puertas)),
         ("Entradas >>", AccionMenu::AbrirCategoria(CategoriaMenu::Entradas)),
         ("Salidas  >>", AccionMenu::AbrirCategoria(CategoriaMenu::Salidas)),
+        ("Chip     >>", AccionMenu::AbrirCategoria(CategoriaMenu::Chip)),
         ("Archivo  >>", AccionMenu::AbrirCategoria(CategoriaMenu::Archivo)),
     ];
 
@@ -580,6 +734,10 @@ fn abrir_submenu(
             ("Puerta AND", AccionMenu::CrearNodo(TipoPuerta::And)),
             ("Puerta OR", AccionMenu::CrearNodo(TipoPuerta::Or)),
             ("Puerta NOT", AccionMenu::CrearNodo(TipoPuerta::Not)),
+            ("Puerta NAND", AccionMenu::CrearNodo(TipoPuerta::Nand)),
+            ("Puerta NOR", AccionMenu::CrearNodo(TipoPuerta::Nor)),
+            ("Puerta XOR", AccionMenu::CrearNodo(TipoPuerta::Xor)),
+            ("Puerta XNOR", AccionMenu::CrearNodo(TipoPuerta::Xnor)),
         ],
         CategoriaMenu::Entradas => vec![
             ("Interruptor", AccionMenu::CrearNodo(TipoPuerta::Interruptor)),
@@ -589,6 +747,9 @@ fn abrir_submenu(
             ("LED Salida", AccionMenu::CrearNodo(TipoPuerta::Led)),
             ("Display 4-Bits", AccionMenu::CrearNodo(TipoPuerta::Display4Bits)),
             ("Display 7-Seg", AccionMenu::CrearNodo(TipoPuerta::Display7Seg)),
+        ],
+        CategoriaMenu::Chip => vec![
+            ("Barras I/O", AccionMenu::AlternarBarrasChip),
         ],
         CategoriaMenu::Archivo => vec![
             ("Guardar .cir", AccionMenu::GuardarCircuito),
@@ -602,7 +763,6 @@ fn abrir_submenu(
     let separacion = 36.0;
     let total_alto = (opciones.len() as f32) * separacion + 10.0;
 
-    // Colocamos el submenú justo a la derecha del menú principal
     let pos_sub = Vec2::new(
         pos_menu_principal.x + ancho_btn + 14.0,
         pos_menu_principal.y,

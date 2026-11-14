@@ -21,7 +21,7 @@ use lineas::*;
 use logica::*;
 use archivo::*;
 
-// Bloque: Bloque 2: main
+// --- Bloque 2: main ---
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -32,16 +32,16 @@ fn main() {
             }),
             ..default()
         }))
-        // Inyectamos la configuración
+        // Inyectamos la configuración y recursos de ratón
         .init_resource::<ConfigApp>()
         .init_resource::<EstadoCrearLinea>()
+        .init_resource::<CodoArrastrado>()
         .init_state::<ModoApp>()
         .add_systems(Startup, setup_entorno)
         .add_systems(
             Update, 
             (
                 (
-                    dibuja_cuadricula,
                     gestionar_teclado_archivo,
                     gestionar_clic_selector_carga,
                     gestionar_clic_menu,
@@ -79,6 +79,9 @@ fn setup_entorno(
         CamaraPrincipal
     ));
 
+    // Creamos la cuadrícula fija en el fondo (Z = -5.0) detrás de todo
+    crear_cuadricula_fondo(&mut commands, &config);
+
     // Creamos dos interruptores de entrada a la izquierda
     crear_interruptor(
         &mut commands,
@@ -97,16 +100,20 @@ fn setup_entorno(
         &config,
     );
 
-    // Instanciamos una puerta AND, una OR y una NOT
+    // Instanciamos una puerta AND, una OR y una NOT vectoriales
     crear_puerta(
-        &mut commands, 
+        &mut commands,
+        &mut meshes,
+        &mut materials,
         Vec2::new(-50.0, 50.0), 
         TipoPuerta::And,
         &config
     );
     
     crear_puerta(
-        &mut commands, 
+        &mut commands,
+        &mut meshes,
+        &mut materials,
         Vec2::new(150.0, 50.0), 
         TipoPuerta::Or,
         &config
@@ -114,7 +121,9 @@ fn setup_entorno(
 
     // Instanciamos una puerta NOT de una sola entrada
     crear_puerta(
-        &mut commands, 
+        &mut commands,
+        &mut meshes,
+        &mut materials,
         Vec2::new(-50.0, -100.0), 
         TipoPuerta::Not,
         &config

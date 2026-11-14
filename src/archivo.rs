@@ -344,8 +344,10 @@ pub fn gestionar_teclado_archivo(
         }
     }
 }
-
-// --- Bloque 7: Sistema de Guardado y Carga en Fichero ---
+// ==========================================
+// Fichero: src/archivo.rs
+// Bloque: Bloque 7: Sistema de Guardado y Carga en Fichero
+// ==========================================
 pub fn procesar_guardado_y_carga(
     q_guardar: Query<(Entity, &PeticionGuardar)>,
     q_cargar: Query<(Entity, &PeticionCargar)>,
@@ -448,6 +450,10 @@ fn guardar_en_disco(
             TipoPuerta::And => "AND",
             TipoPuerta::Or => "OR",
             TipoPuerta::Not => "NOT",
+            TipoPuerta::Nand => "NAND",
+            TipoPuerta::Nor => "NOR",
+            TipoPuerta::Xor => "XOR",
+            TipoPuerta::Xnor => "XNOR",
             TipoPuerta::Interruptor => "INT",
             TipoPuerta::Led => "LED",
             TipoPuerta::Reloj => "CLK",
@@ -486,9 +492,18 @@ fn guardar_en_disco(
         }
 
         if let (Some(orig), Some(dest)) = (idx_origen, idx_destino) {
+            let codos_str: Vec<String> = cable
+                .puntos_intermedios
+                .iter()
+                .map(|p| format!("{},{}", p.x, p.y))
+                .collect();
+
             let linea = format!(
-                "CABLE|{}|{}|{}",
-                orig, dest, pin_destino
+                "CABLE|{}|{}|{}|{}",
+                orig,
+                dest,
+                pin_destino,
+                codos_str.join(";")
             );
             lineas.push(linea);
         }
@@ -502,7 +517,10 @@ fn guardar_en_disco(
     }
 }
 
-// --- Bloque 9: Lógica de Lectura y Reconstrucción ---
+// ==========================================
+// Fichero: src/archivo.rs
+// Bloque: Bloque 9: Lógica de Lectura y Reconstrucción
+// ==========================================
 fn cargar_desde_disco(
     ruta_archivo: &str,
     q_nodos: &Query<(Entity, &Transform, &NodoLogico, &Children)>,
@@ -546,20 +564,58 @@ fn cargar_desde_disco(
             let info_con = match cod {
                 "AND" => crear_puerta(
                     commands, 
+                    meshes,
+                    materials,
                     pos, 
                     TipoPuerta::And, 
                     config
                 ),
                 "OR" => crear_puerta(
                     commands, 
+                    meshes,
+                    materials,
                     pos, 
                     TipoPuerta::Or, 
                     config
                 ),
                 "NOT" => crear_puerta(
                     commands, 
+                    meshes,
+                    materials,
                     pos, 
                     TipoPuerta::Not, 
+                    config
+                ),
+                "NAND" => crear_puerta(
+                    commands, 
+                    meshes,
+                    materials,
+                    pos, 
+                    TipoPuerta::Nand, 
+                    config
+                ),
+                "NOR" => crear_puerta(
+                    commands, 
+                    meshes,
+                    materials,
+                    pos, 
+                    TipoPuerta::Nor, 
+                    config
+                ),
+                "XOR" => crear_puerta(
+                    commands, 
+                    meshes,
+                    materials,
+                    pos, 
+                    TipoPuerta::Xor, 
+                    config
+                ),
+                "XNOR" => crear_puerta(
+                    commands, 
+                    meshes,
+                    materials,
+                    pos, 
+                    TipoPuerta::Xnor, 
                     config
                 ),
                 "INT" => crear_interruptor(
@@ -606,6 +662,18 @@ fn cargar_desde_disco(
             let dest_idx: usize = partes[2].parse().unwrap_or(9999);
             let pin_idx: usize = partes[3].parse().unwrap_or(0);
 
+            let mut puntos_intermedios = Vec::new();
+            if partes.len() >= 5 && !partes[4].is_empty() {
+                for par in partes[4].split(';') {
+                    let coords: Vec<&str> = par.split(',').collect();
+                    if coords.len() == 2 {
+                        let cx: f32 = coords[0].parse().unwrap_or(0.0);
+                        let cy: f32 = coords[1].parse().unwrap_or(0.0);
+                        puntos_intermedios.push(Vec2::new(cx, cy));
+                    }
+                }
+            }
+
             if orig_idx < conectores_creados.len() 
                 && dest_idx < conectores_creados.len() 
             {
@@ -615,7 +683,11 @@ fn cargar_desde_disco(
                 if let Some(origen) = ent_orig {
                     if pin_idx < entradas_dest.len() {
                         let destino = entradas_dest[pin_idx];
-                        commands.spawn(Cable { origen, destino });
+                        commands.spawn(Cable { 
+                            origen, 
+                            destino,
+                            puntos_intermedios,
+                        });
                     }
                 }
             }

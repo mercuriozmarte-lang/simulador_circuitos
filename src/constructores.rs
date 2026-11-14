@@ -42,55 +42,373 @@ pub fn bundle_hueco(
     )
 }
 
-// --- Bloque 3: Creador de Puertas Lógicas ---
+
+// ==========================================
+// Fichero: src/constructores.rs
+// Bloque: Bloque 3: Creador de Puertas Lógicas Vectoriales
+// ==========================================
+use bevy::render::mesh::{Indices, PrimitiveTopology};
+use bevy::asset::RenderAssetUsages;
+
+// Convierte un polígono convexo o en abanico en una malla 2D de triángulos
+fn crear_malla_poligono(
+    centro: Vec2, 
+    puntos: &[Vec2]
+) -> Mesh {
+    let mut posiciones = Vec::with_capacity(puntos.len() + 1);
+    posiciones.push([centro.x, centro.y, 0.0]);
+
+    for p in puntos {
+        posiciones.push([p.x, p.y, 0.0]);
+    }
+
+    let mut indices = Vec::with_capacity(puntos.len() * 3);
+    let n = puntos.len() as u32;
+    for i in 1..=n {
+        let sig = if i == n { 1 } else { i + 1 };
+        indices.push(0);
+        indices.push(i);
+        indices.push(sig);
+    }
+
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, posiciones);
+    mesh.insert_indices(Indices::U32(indices));
+    mesh
+}
+
+// Genera los puntos del contorno de una puerta AND / NAND (forma en D)
+fn puntos_forma_and(
+    x_izq: f32,
+    x_rect: f32,
+    radio: f32,
+) -> Vec<Vec2> {
+    let mut pts = Vec::new();
+    pts.push(Vec2::new(x_izq, radio));
+    pts.push(Vec2::new(x_izq, -radio));
+
+    let pasos = 20;
+    for i in 0..=pasos {
+        let t = i as f32 / pasos as f32;
+        let ang = -std::f32::consts::FRAC_PI_2 
+            + t * std::f32::consts::PI;
+        let x = x_rect + radio * ang.cos();
+        let y = radio * ang.sin();
+        pts.push(Vec2::new(x, y));
+    }
+    pts
+}
+
+// Genera los puntos del contorno curvo de una puerta OR / NOR / XOR / XNOR
+fn puntos_forma_or(
+    x_izq: f32,
+    x_punta: f32,
+    alto_medio: f32,
+    curvatura_trasera: f32,
+) -> Vec<Vec2> {
+    let mut pts = Vec::new();
+    let pasos = 16;
+    let ancho = x_punta - x_izq;
+
+    // 1. Curva inferior (desde la esquina inferior izquierda hasta la punta derecha)
+    for i in 0..=pasos {
+        let t = i as f32 / pasos as f32;
+        let x = x_izq + t * ancho;
+        let y = -alto_medio * (1.0 - t * t);
+        pts.push(Vec2::new(x, y));
+    }
+
+    // 2. Curva superior (desde la punta derecha hasta la esquina superior izquierda)
+    for i in 1..=pasos {
+        let t = i as f32 / pasos as f32;
+        let u = 1.0 - t;
+        let x = x_izq + u * ancho;
+        let y = alto_medio * (1.0 - u * u);
+        pts.push(Vec2::new(x, y));
+    }
+
+    // 3. Arco cóncavo trasero (de arriba a abajo por el lado izquierdo)
+    for i in 1..pasos {
+        let t = i as f32 / pasos as f32;
+        let y = alto_medio - t * (2.0 * alto_medio);
+        let norm_y = y / alto_medio;
+        let x = x_izq + curvatura_trasera * (1.0 - norm_y * norm_y);
+        pts.push(Vec2::new(x, y));
+    }
+
+    pts
+}
+
+// Genera una cinta curva para el arco extra de las puertas XOR y XNOR
+fn crear_malla_arco_xor(
+    x_base: f32,
+    alto_medio: f32,
+    curvatura: f32,
+    grosor: f32,
+) -> Mesh {
+    let pasos = 16;
+    let mut posiciones = Vec::new();
+    let mut indices = Vec::new();
+
+    for i in 0..=pasos {
+        let t = i as f32 / pasos as f32;
+        let y = alto_medio - t * (2.0 * alto_medio);
+        let norm_y = y / alto_medio;
+        let x_centro = x_base + curvatura * (1.0 - norm_y * norm_y);
+
+        posiciones.push([x_centro - grosor / 2.0, y, 0.0]);
+        posiciones.push([x_centro + grosor / 2.0, y, 0.0]);
+    }
+
+    for i in 0..pasos {
+        let base = (i * 2) as u32;
+        indices.push(base);
+        indices.push(base + 1);
+        indices.push(base + 2);
+
+        indices.push(base + 1);
+        indices.push(base + 3);
+        indices.push(base + 2);
+    }
+
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, posiciones);
+    mesh.insert_indices(Indices::U32(indices));
+    mesh
+}
+
 pub fn crear_puerta(
-    commands: &mut Commands, 
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<ColorMaterial>>,
     pos: Vec2,
     tipo_puerta: TipoPuerta,
     config: &ConfigApp,
 ) -> (Option<Entity>, Vec<Entity>) {
-    // Escogemos el texto según el tipo
+    // Texto identificador de la puerta
     let texto = match tipo_puerta {
         TipoPuerta::And => "AND",
         TipoPuerta::Or => "OR",
         TipoPuerta::Not => "NOT",
-        TipoPuerta::Interruptor => "IN",
-        TipoPuerta::Led => "OUT",
-        TipoPuerta::Reloj => "CLK",
-        TipoPuerta::Display7Seg => "7SEG",
-        TipoPuerta::Display4Bits => "HEX",
+        TipoPuerta::Nand => "NAND",
+        TipoPuerta::Nor => "NOR",
+        TipoPuerta::Xor => "XOR",
+        TipoPuerta::Xnor => "XNOR",
+        _ => "GATE",
     };
+
+    let es_negada = matches!(
+        tipo_puerta,
+        TipoPuerta::Not 
+            | TipoPuerta::Nand 
+            | TipoPuerta::Nor 
+            | TipoPuerta::Xnor
+    );
+    let es_xor = matches!(
+        tipo_puerta, 
+        TipoPuerta::Xor | TipoPuerta::Xnor
+    );
+
+    let mat_borde = materials.add(Color::BLACK);
+    let mat_relleno = materials.add(Color::WHITE);
 
     let mut ent_salida = None;
     let mut entradas = Vec::new();
 
+    // Posición X de los conectores en los extremos (-50 y +50)
+    let x_con_in = -config.tam_puerta.x / 2.0;
+    let x_con_out = config.tam_puerta.x / 2.0;
+
     commands.spawn((
-        Sprite {
-            color: config.col_puerta,
-            custom_size: Some(config.tam_puerta),
-            ..default()
-        },
         Transform::from_xyz(pos.x, pos.y, 1.0),
-        // Guardamos su tipo para evaluar la lógica en el futuro
+        Visibility::default(),
         NodoLogico { tipo: tipo_puerta },
     ))
     .with_children(|padre| {
+        // 1. Dibujamos las líneas negras de las patillas (pines metálicos)
+        if tipo_puerta == TipoPuerta::Not {
+            padre.spawn((
+                Sprite {
+                    color: Color::BLACK,
+                    custom_size: Some(Vec2::new(26.0, 3.5)),
+                    ..default()
+                },
+                Transform::from_xyz(-35.0, 0.0, 0.02),
+            ));
+        } else {
+            // Patilla superior (Y = +15.0)
+            padre.spawn((
+                Sprite {
+                    color: Color::BLACK,
+                    custom_size: Some(Vec2::new(28.0, 3.5)),
+                    ..default()
+                },
+                Transform::from_xyz(-34.0, 15.0, 0.02),
+            ));
+            // Patilla inferior (Y = -15.0)
+            padre.spawn((
+                Sprite {
+                    color: Color::BLACK,
+                    custom_size: Some(Vec2::new(28.0, 3.5)),
+                    ..default()
+                },
+                Transform::from_xyz(-34.0, -15.0, 0.02),
+            ));
+        }
+
+        // Patilla de salida derecha (Y = 0.0)
         padre.spawn((
-            Text2d::new(texto),
-            TextFont {
-                font_size: bevy::text::FontSize::Px(20.0),
+            Sprite {
+                color: Color::BLACK,
+                custom_size: Some(Vec2::new(26.0, 3.5)),
                 ..default()
             },
-            TextColor(Color::WHITE),
-            // Z=0.2 para que el texto quede por encima del bloque
-            Transform::from_xyz(0.0, 0.0, 0.2),
+            Transform::from_xyz(35.0, 0.0, 0.02),
         ));
-        
-        // Si es una puerta NOT, solo lleva una entrada centrada
+
+        // 2. Cuerpo vectorial según la familia de puerta (Borde negro + Relleno blanco)
+        match tipo_puerta {
+            TipoPuerta::Not => {
+                let pts_ext = [
+                    Vec2::new(-24.0, 24.0),
+                    Vec2::new(-24.0, -24.0),
+                    Vec2::new(18.0, 0.0),
+                ];
+                let pts_int = [
+                    Vec2::new(-20.5, 19.0),
+                    Vec2::new(-20.5, -19.0),
+                    Vec2::new(12.0, 0.0),
+                ];
+                padre.spawn((
+                    Mesh2d(meshes.add(crear_malla_poligono(
+                        Vec2::new(-10.0, 0.0),
+                        &pts_ext,
+                    ))),
+                    MeshMaterial2d(mat_borde.clone()),
+                    Transform::from_xyz(0.0, 0.0, 0.05),
+                ));
+                padre.spawn((
+                    Mesh2d(meshes.add(crear_malla_poligono(
+                        Vec2::new(-10.0, 0.0),
+                        &pts_int,
+                    ))),
+                    MeshMaterial2d(mat_relleno.clone()),
+                    Transform::from_xyz(0.0, 0.0, 0.10),
+                ));
+            }
+            TipoPuerta::And | TipoPuerta::Nand => {
+                let pts_ext = puntos_forma_and(-26.0, 0.0, 25.0);
+                let pts_int = puntos_forma_and(-22.5, 0.0, 21.5);
+
+                padre.spawn((
+                    Mesh2d(meshes.add(crear_malla_poligono(
+                        Vec2::ZERO,
+                        &pts_ext,
+                    ))),
+                    MeshMaterial2d(mat_borde.clone()),
+                    Transform::from_xyz(0.0, 0.0, 0.05),
+                ));
+                padre.spawn((
+                    Mesh2d(meshes.add(crear_malla_poligono(
+                        Vec2::ZERO,
+                        &pts_int,
+                    ))),
+                    MeshMaterial2d(mat_relleno.clone()),
+                    Transform::from_xyz(0.0, 0.0, 0.10),
+                ));
+            }
+            TipoPuerta::Or 
+            | TipoPuerta::Nor 
+            | TipoPuerta::Xor 
+            | TipoPuerta::Xnor => {
+                let x_izq = if es_xor { -22.0 } else { -26.0 };
+                let pts_ext = puntos_forma_or(x_izq, 25.0, 25.0, 9.0);
+                let pts_int = puntos_forma_or(
+                    x_izq + 3.5, 
+                    20.5, 
+                    21.5, 
+                    8.0
+                );
+
+                padre.spawn((
+                    Mesh2d(meshes.add(crear_malla_poligono(
+                        Vec2::new(2.0, 0.0),
+                        &pts_ext,
+                    ))),
+                    MeshMaterial2d(mat_borde.clone()),
+                    Transform::from_xyz(0.0, 0.0, 0.05),
+                ));
+                padre.spawn((
+                    Mesh2d(meshes.add(crear_malla_poligono(
+                        Vec2::new(2.0, 0.0),
+                        &pts_int,
+                    ))),
+                    MeshMaterial2d(mat_relleno.clone()),
+                    Transform::from_xyz(0.0, 0.0, 0.10),
+                ));
+
+                // Si es XOR o XNOR, añadimos el arco curvo independiente detrás
+                if es_xor {
+                    let malla_arco = crear_malla_arco_xor(
+                        -29.0, 
+                        25.0, 
+                        9.0, 
+                        3.5
+                    );
+                    padre.spawn((
+                        Mesh2d(meshes.add(malla_arco)),
+                        MeshMaterial2d(mat_borde.clone()),
+                        Transform::from_xyz(0.0, 0.0, 0.08),
+                    ));
+                }
+            }
+            _ => {}
+        }
+
+        // 3. Si la puerta es negada (NOT, NAND, NOR, XNOR), añadimos el circulito inversor
+        if es_negada {
+            let x_burbuja = if tipo_puerta == TipoPuerta::Not {
+                23.0
+            } else {
+                30.0
+            };
+            padre.spawn((
+                Mesh2d(meshes.add(Circle::new(5.5))),
+                MeshMaterial2d(mat_borde),
+                Transform::from_xyz(x_burbuja, 0.0, 0.12),
+            ));
+            padre.spawn((
+                Mesh2d(meshes.add(Circle::new(3.0))),
+                MeshMaterial2d(mat_relleno),
+                Transform::from_xyz(x_burbuja, 0.0, 0.15),
+            ));
+        }
+
+        // 4. Etiqueta de texto en negro nítido en el centro de la puerta
+        if tipo_puerta != TipoPuerta::Not {
+            let x_txt = if es_xor { 1.0 } else { -2.0 };
+            padre.spawn((
+                Text2d::new(texto),
+                TextFont {
+                    font_size: bevy::text::FontSize::Px(13.0),
+                    ..default()
+                },
+                TextColor(Color::BLACK),
+                Transform::from_xyz(x_txt, 0.0, 0.20),
+            ));
+        }
+
+        // 5. Conectores interactivos de Entrada y Salida
         if tipo_puerta == TipoPuerta::Not {
             let e_in = padre.spawn((
                 bundle_conector(
-                    Vec3::new(-config.tam_puerta.x / 2.0, 0.0, 0.1),
+                    Vec3::new(x_con_in, 0.0, 0.25),
                     TipoConector::Entrada,
                     config,
                 ),
@@ -102,10 +420,9 @@ pub fn crear_puerta(
             .id();
             entradas.push(e_in);
         } else {
-            // Entrada 1 (Superior izquierda)
             let e_in1 = padre.spawn((
                 bundle_conector(
-                    Vec3::new(-config.tam_puerta.x / 2.0, 15.0, 0.1),
+                    Vec3::new(x_con_in, 15.0, 0.25),
                     TipoConector::Entrada,
                     config,
                 ),
@@ -117,10 +434,9 @@ pub fn crear_puerta(
             .id();
             entradas.push(e_in1);
 
-            // Entrada 2 (Inferior izquierda)
             let e_in2 = padre.spawn((
                 bundle_conector(
-                    Vec3::new(-config.tam_puerta.x / 2.0, -15.0, 0.1),
+                    Vec3::new(x_con_in, -15.0, 0.25),
                     TipoConector::Entrada,
                     config,
                 ),
@@ -132,10 +448,9 @@ pub fn crear_puerta(
             .id();
             entradas.push(e_in2);
         }
-        
-        // Salida (Centro derecha)
+
         let e_out = padre.spawn(bundle_conector(
-            Vec3::new(config.tam_puerta.x / 2.0, 0.0, 0.1),
+            Vec3::new(x_con_out, 0.0, 0.25),
             TipoConector::Salida,
             config,
         ))
@@ -488,4 +803,57 @@ pub fn crear_display(
     });
 
     (None, entradas)
+}
+
+// --- Bloque 8: Creador de Barras Laterales para Chip ---
+pub fn crear_barras_chip(commands: &mut Commands) {
+    let x_izq = -500.0;
+    let x_der = 500.0;
+    let ancho_barra = 16.0;
+    let alto_barra = 600.0;
+    let col_barra = Color::srgb(0.22, 0.25, 0.30);
+
+    // 1. Barra Izquierda (donde se pegan los Interruptores de Entrada)
+    commands.spawn((
+        Sprite {
+            color: col_barra,
+            custom_size: Some(Vec2::new(ancho_barra, alto_barra)),
+            ..default()
+        },
+        Transform::from_xyz(x_izq, 0.0, 0.5),
+        BarraChip::IzquierdaEntradas,
+    ))
+    .with_children(|padre| {
+        padre.spawn((
+            Text2d::new("IN CHIP"),
+            TextFont {
+                font_size: bevy::text::FontSize::Px(13.0),
+                ..default()
+            },
+            TextColor(Color::srgb(0.7, 0.8, 1.0)),
+            Transform::from_xyz(0.0, alto_barra / 2.0 + 16.0, 0.1),
+        ));
+    });
+
+    // 2. Barra Derecha (donde se pegan los LEDs de Salida)
+    commands.spawn((
+        Sprite {
+            color: col_barra,
+            custom_size: Some(Vec2::new(ancho_barra, alto_barra)),
+            ..default()
+        },
+        Transform::from_xyz(x_der, 0.0, 0.5),
+        BarraChip::DerechaSalidas,
+    ))
+    .with_children(|padre| {
+        padre.spawn((
+            Text2d::new("OUT CHIP"),
+            TextFont {
+                font_size: bevy::text::FontSize::Px(13.0),
+                ..default()
+            },
+            TextColor(Color::srgb(0.7, 0.8, 1.0)),
+            Transform::from_xyz(0.0, alto_barra / 2.0 + 16.0, 0.1),
+        ));
+    });
 }

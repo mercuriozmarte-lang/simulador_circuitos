@@ -13,19 +13,33 @@ pub enum ModoApp {
     CreandoLinea,
 }
 
-// --- Bloque 3: Recursos Globales ---
+
+// Bloque: Bloque 3: Recursos Globales
 #[derive(Resource, Default)]
 pub struct EstadoCrearLinea {
     pub origen_entidad: Option<Entity>,
     pub origen_pos: Vec2,
+    // Almacena los codos (waypoints) mientras trazamos el cable
+    pub puntos_intermedios: Vec<Vec2>,
 }
 
-// --- Bloque 4: Componentes de Nodos ---
+// Guarda qué codo de qué cable estamos arrastrando con el ratón
+#[derive(Resource, Default)]
+pub struct CodoArrastrado {
+    pub seleccion: Option<(Entity, usize)>,
+}
+
+// Bloque: Bloque 4: Componentes de Nodos y Barras de Chip
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TipoPuerta {
     And,
     Or,
     Not,
+    // NUEVO: Resto de puertas lógicas fundamentales
+    Nand,
+    Nor,
+    Xor,
+    Xnor,
     // Interruptor de entrada manual
     Interruptor,
     // Elemento receptor final (LED / Bombilla)
@@ -43,6 +57,17 @@ pub enum TipoPuerta {
 pub struct NodoLogico {
     pub tipo: TipoPuerta,
 }
+
+// Identifica las dos barras laterales donde se pegan las patillas del Chip
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+pub enum BarraChip {
+    IzquierdaEntradas,
+    DerechaSalidas,
+}
+
+// Marca los Interruptores o LEDs que están "pegados" a una barra de Chip
+#[derive(Component)]
+pub struct PegadoABarra(pub BarraChip);
 
 // Identifica el cuadrado izquierdo que alterna entre 0 y 1
 #[derive(Component)]
@@ -83,7 +108,6 @@ pub struct Arrastrando;
 
 #[derive(Component)]
 pub struct CamaraPrincipal;
-
 // --- Bloque 5: Componentes de Conectores ---
 #[derive(Component, PartialEq, Eq, Clone, Copy)]
 pub enum TipoConector {
@@ -100,12 +124,11 @@ pub struct ValorSeñal(pub bool);
 pub struct Cable {
     pub origen: Entity,
     pub destino: Entity,
+    // Lista de codos intermedios por donde pasa el cable
+    pub puntos_intermedios: Vec<Vec2>,
 }
 
-// ==========================================
-// Fichero: src/componentes.rs
-// Bloque: Bloque 7: Componentes del Menú Contextual
-// ==========================================
+// --- Bloque 7: Componentes del Menú Contextual ---
 #[derive(Component)]
 pub struct MenuContextual {
     // Guardamos dónde se hizo clic derecho para crear ahí la pieza
@@ -123,6 +146,7 @@ pub enum CategoriaMenu {
     Puertas,
     Entradas,
     Salidas,
+    Chip,
     Archivo,
 }
 
@@ -130,6 +154,7 @@ pub enum CategoriaMenu {
 pub enum AccionMenu {
     AbrirCategoria(CategoriaMenu),
     CrearNodo(TipoPuerta),
+    AlternarBarrasChip,
     GuardarCircuito,
     CargarCircuito,
     LimpiarTodo,
@@ -153,11 +178,11 @@ pub struct DialogoArchivo {
 #[derive(Component)]
 pub struct TextoInputArchivo;
 
-// NUEVO: Ventana contenedora de la lista de ficheros .cir encontrados
+// Ventana contenedora de la lista de ficheros .cir encontrados
 #[derive(Component)]
 pub struct SelectorCarga;
 
-// NUEVO: Botón individual para cada fichero .cir de la lista
+// Botón individual para cada fichero .cir de la lista
 #[derive(Component)]
 pub struct BotonArchivoCir {
     pub nombre_archivo: String,

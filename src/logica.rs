@@ -2,10 +2,10 @@
 // Fichero: src/logica.rs
 // ==========================================
 
-use crate::componentes::*;
-use crate::configuracion::ConfigApp;
 // --- Bloque 1: Importaciones ---
 use bevy::prelude::*;
+use crate::componentes::*;
+use crate::configuracion::ConfigApp;
 
 // --- Bloque 2: Propagación de Cables ---
 pub fn propagar_cables(
@@ -28,7 +28,7 @@ pub fn propagar_cables(
         // 1. Leemos y copiamos el booleano (el préstamo inmutable termina en esta línea)
         if let Ok(val_origen) = q_valores.get(cable.origen) {
             let estado_copiado = val_origen.0;
-
+            
             // 2. Ahora pedimos el préstamo mutable sin conflictos de memoria
             if let Ok(mut val_destino) = q_valores.get_mut(cable.destino) {
                 val_destino.0 = estado_copiado;
@@ -36,39 +36,37 @@ pub fn propagar_cables(
         }
     }
 }
-// ==========================================
-// Fichero: src/logica.rs
-// Bloque: Bloque 3: Evaluación de Puertas Lógicas
-// ==========================================
+
+// --- Bloque 3: Evaluación de Puertas Lógicas ---
 pub fn evaluar_puertas(
     q_puertas: Query<(Entity, &NodoLogico), With<NodoLogico>>,
     q_children: Query<&Children>,
     q_botones: Query<&BotonInterruptor>,
     // Consultamos el estado de los relojes
     q_relojes: Query<&ControlReloj>,
-    // NUEVO: Consultamos el índice de pin para entradas ordenadas
+    // Consultamos el índice de pin para entradas ordenadas
     q_pines: Query<&PinEntrada>,
     mut q_conectores: Query<(&TipoConector, &mut ValorSeñal)>,
     // Consultamos el sprite del LED para iluminarlo
     mut q_leds: Query<
-        &mut Sprite,
+        &mut Sprite, 
         (
-            With<IndicadorLed>,
-            Without<TipoConector>,
-            Without<SegmentoDisplay>,
-        ),
+            With<IndicadorLed>, 
+            Without<TipoConector>, 
+            Without<SegmentoDisplay>
+        )
     >,
-    // NUEVO: Consultamos los 7 segmentos de los displays
+    // Consultamos los 7 segmentos de los displays
     mut q_segmentos: Query<
         (&SegmentoDisplay, &mut Sprite),
-        (Without<TipoConector>, Without<IndicadorLed>),
+        (Without<TipoConector>, Without<IndicadorLed>)
     >,
     config: Res<ConfigApp>,
 ) {
     // Recorremos cada puerta lógica del circuito
     for (entidad_puerta, puerta) in q_puertas.iter() {
-        let Ok(hijos) = q_children.get(entidad_puerta) else {
-            continue;
+        let Ok(hijos) = q_children.get(entidad_puerta) else { 
+            continue; 
         };
 
         // Recopilamos los valores de todas las entradas de esta puerta
@@ -116,12 +114,48 @@ pub fn evaluar_puertas(
 
         // Calculamos el resultado según el tipo de puerta (¡soporta N entradas!)
         let resultado = match puerta.tipo {
-            TipoPuerta::And => !valores_entradas.is_empty() && valores_entradas.iter().all(|&v| v),
-            TipoPuerta::Or => valores_entradas.iter().any(|&v| v),
-            TipoPuerta::Not => !valores_entradas.first().copied().unwrap_or(false),
-            TipoPuerta::Interruptor | TipoPuerta::Reloj => estado_emisor,
-            TipoPuerta::Led => valores_entradas.first().copied().unwrap_or(false),
-            TipoPuerta::Display7Seg | TipoPuerta::Display4Bits => false,
+            TipoPuerta::And => {
+                !valores_entradas.is_empty() 
+                    && valores_entradas.iter().all(|&v| v)
+            }
+            TipoPuerta::Or => {
+                valores_entradas.iter().any(|&v| v)
+            }
+            TipoPuerta::Not => {
+                !valores_entradas.first().copied().unwrap_or(false)
+            }
+            TipoPuerta::Nand => {
+                !(
+                    !valores_entradas.is_empty() 
+                        && valores_entradas.iter().all(|&v| v)
+                )
+            }
+            TipoPuerta::Nor => {
+                !valores_entradas.iter().any(|&v| v)
+            }
+            TipoPuerta::Xor => {
+                let unos = valores_entradas
+                    .iter()
+                    .filter(|&&v| v)
+                    .count();
+                unos % 2 == 1
+            }
+            TipoPuerta::Xnor => {
+                let unos = valores_entradas
+                    .iter()
+                    .filter(|&&v| v)
+                    .count();
+                unos % 2 == 0
+            }
+            TipoPuerta::Interruptor | TipoPuerta::Reloj => {
+                estado_emisor
+            }
+            TipoPuerta::Led => {
+                valores_entradas.first().copied().unwrap_or(false)
+            }
+            TipoPuerta::Display7Seg | TipoPuerta::Display4Bits => {
+                false
+            }
         };
 
         // Asignamos el resultado calculado al conector de salida de la puerta
@@ -157,18 +191,10 @@ pub fn evaluar_puertas(
                 TipoPuerta::Display4Bits => {
                     // Pin 0 = Bit 8, Pin 1 = Bit 4, Pin 2 = Bit 2, Pin 3 = Bit 1
                     let mut valor_hex = 0u8;
-                    if entradas_ordenadas[0] {
-                        valor_hex += 8;
-                    }
-                    if entradas_ordenadas[1] {
-                        valor_hex += 4;
-                    }
-                    if entradas_ordenadas[2] {
-                        valor_hex += 2;
-                    }
-                    if entradas_ordenadas[3] {
-                        valor_hex += 1;
-                    }
+                    if entradas_ordenadas[0] { valor_hex += 8; }
+                    if entradas_ordenadas[1] { valor_hex += 4; }
+                    if entradas_ordenadas[2] { valor_hex += 2; }
+                    if entradas_ordenadas[3] { valor_hex += 1; }
                     decodificar_hex_7seg(valor_hex)
                 }
                 _ => [false; 7],
@@ -176,7 +202,9 @@ pub fn evaluar_puertas(
 
             let col_apagado = Color::srgb(0.18, 0.18, 0.20);
             for id_seg in segmentos {
-                if let Ok((seg_idx, mut sprite_seg)) = q_segmentos.get_mut(id_seg) {
+                if let Ok((seg_idx, mut sprite_seg)) = 
+                    q_segmentos.get_mut(id_seg) 
+                {
                     if seg_idx.0 < 7 && mascara_seg[seg_idx.0] {
                         sprite_seg.color = config.col_estado_1;
                     } else {
@@ -192,37 +220,41 @@ pub fn evaluar_puertas(
 fn decodificar_hex_7seg(valor: u8) -> [bool; 7] {
     match valor {
         //   A      B      C      D      E      F      G
-        0 => [true, true, true, true, true, true, false],
-        1 => [false, true, true, false, false, false, false],
-        2 => [true, true, false, true, true, false, true],
-        3 => [true, true, true, true, false, false, true],
-        4 => [false, true, true, false, false, true, true],
-        5 => [true, false, true, true, false, true, true],
-        6 => [true, false, true, true, true, true, true],
-        7 => [true, true, true, false, false, false, false],
-        8 => [true, true, true, true, true, true, true],
-        9 => [true, true, true, true, false, true, true],
-        10 => [true, true, true, false, true, true, true], // A
-        11 => [false, false, true, true, true, true, true], // b
-        12 => [true, false, false, true, true, true, false], // C
-        13 => [false, true, true, true, true, false, true], // d
-        14 => [true, false, false, true, true, true, true], // E
-        15 => [true, false, false, false, true, true, true], // F
+        0 => [true,  true,  true,  true,  true,  true,  false],
+        1 => [false, true,  true,  false, false, false, false],
+        2 => [true,  true,  false, true,  true,  false, true ],
+        3 => [true,  true,  true,  true,  false, false, true ],
+        4 => [false, true,  true,  false, false, true,  true ],
+        5 => [true,  false, true,  true,  false, true,  true ],
+        6 => [true,  false, true,  true,  true,  true,  true ],
+        7 => [true,  true,  true,  false, false, false, false],
+        8 => [true,  true,  true,  true,  true,  true,  true ],
+        9 => [true,  true,  true,  true,  false, true,  true ],
+        10 => [true, true,  true,  false, true,  true,  true ], // A
+        11 => [false,false, true,  true,  true,  true,  true ], // b
+        12 => [true, false, false, true,  true,  true,  false], // C
+        13 => [false,true,  true,  true,  true,  false, true ], // d
+        14 => [true, false, false, true,  true,  true,  true ], // E
+        15 => [true, false, false, false, true,  true,  true ], // F
         _ => [false; 7],
     }
 }
+
 // --- Bloque 4: Feedback Visual (Rojo, Verde o Hueco) ---
 pub fn actualizar_visuales_conectores(
     q_cables: Query<&Cable>,
-    mut q_conectores: Query<(Entity, &ValorSeñal, &mut Sprite, &Children), With<TipoConector>>,
+    mut q_conectores: Query<
+        (Entity, &ValorSeñal, &mut Sprite, &Children), 
+        With<TipoConector>
+    >,
     mut q_huecos: Query<&mut Visibility, With<CentroHueco>>,
     config: Res<ConfigApp>,
 ) {
     for (ent_con, val, mut sprite, hijos) in q_conectores.iter_mut() {
         // Comprobamos si este conector tiene algún cable enganchado
-        let conectado = q_cables
-            .iter()
-            .any(|c| c.origen == ent_con || c.destino == ent_con);
+        let conectado = q_cables.iter().any(|c| {
+            c.origen == ent_con || c.destino == ent_con
+        });
 
         // Si está conectado se rellena de verde (1) o rojo (0).
         // Si NO está conectado, mostramos su centro oscuro para verlo "hueco".
@@ -249,7 +281,7 @@ pub fn actualizar_visuales_conectores(
     }
 }
 
-// --- Bloque 5: Temporizador de Relojes (NUEVO) ---
+// --- Bloque 5: Temporizador de Relojes ---
 pub fn actualizar_relojes(
     time: Res<Time>,
     mut q_relojes: Query<(&mut ControlReloj, &mut Sprite)>,
