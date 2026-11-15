@@ -8,21 +8,28 @@ use bevy::window::PrimaryWindow;
 use crate::componentes::*;
 use crate::configuracion::ConfigApp;
 
-// ==========================================
-// Fichero: src/lineas.rs
-// Bloque: Bloque 2: Crear Cuadrícula Infinita y Configurar Grosor de Cables
-// ==========================================
+// --- Bloque 2: Función Auxiliar para Bloqueo Ortogonal de 90 Grados (Tecla L) ---
+pub fn ajustar_ortogonal_90(origen: Vec2, destino: Vec2) -> Vec2 {
+    let dx = (destino.x - origen.x).abs();
+    let dy = (destino.y - origen.y).abs();
+
+    if dx >= dy {
+        Vec2::new(destino.x, origen.y)
+    } else {
+        Vec2::new(origen.x, destino.y)
+    }
+}
+
+// --- Bloque 3: Crear y Actualizar Cuadrícula Infinita en el Fondo ---
 pub fn crear_cuadricula_fondo(
     commands: &mut Commands,
     config_store: &mut ResMut<GizmoConfigStore>,
     config: &ConfigApp,
 ) {
-    // Aplicamos el grosor de línea configurado en ConfigApp a todos los cables (Gizmos)
     let (gizmo_config, _) = config_store.config_mut::<DefaultGizmoConfigGroup>();
     gizmo_config.line.width = config.grosor_cable;
 
     let paso = 50.0;
-    // Radio amplio (4500px) para cubrir toda la pantalla incluso con el zoom alejado al máximo
     let limite = 4500.0;
     let longitud = limite * 2.0;
     let grosor = 1.0;
@@ -61,7 +68,6 @@ pub fn crear_cuadricula_fondo(
     });
 }
 
-// Reposiciona la cuadrícula en saltos exactos de 50px para que sea infinita al mover la cámara
 pub fn actualizar_cuadricula_infinita(
     q_cam: Query<&Transform, (With<CamaraPrincipal>, Without<CuadriculaFondo>)>,
     mut q_grid: Query<&mut Transform, (With<CuadriculaFondo>, Without<CamaraPrincipal>)>,
@@ -77,8 +83,9 @@ pub fn actualizar_cuadricula_infinita(
     }
 }
 
-// --- Bloque 3: Dibujar Línea Temporal con Codos ---
+// --- Bloque 4: Dibujar Línea Temporal con Codos (y Bloqueo 90° con Tecla L) ---
 pub fn dibuja_linea_temporal(
+    keys: Res<ButtonInput<KeyCode>>,
     estado_app: Res<State<ModoApp>>,
     estado_linea: Res<EstadoCrearLinea>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
@@ -117,16 +124,22 @@ pub fn dibuja_linea_temporal(
                 punto_anterior = codo;
             }
 
+            let pos_final = if keys.pressed(KeyCode::KeyL) {
+                ajustar_ortogonal_90(punto_anterior, pos_mundo)
+            } else {
+                pos_mundo
+            };
+
             gizmos.line_2d(
                 punto_anterior, 
-                pos_mundo, 
+                pos_final, 
                 config.col_cable_tmp
             );
         }
     }
 }
 
-// --- Bloque 4: Dibujar Cables Permanentes con Puentes de Salto y Soldaduras ---
+// --- Bloque 5: Dibujar Cables Permanentes con Puentes de Salto y Soldaduras ---
 struct SegmentoCable {
     a: Vec2,
     b: Vec2,
@@ -134,7 +147,6 @@ struct SegmentoCable {
     color: Color,
 }
 
-// Calcula el punto donde se cortan dos segmentos si se cruzan realmente
 fn interseccion_segmentos(
     a1: Vec2, 
     a2: Vec2, 
@@ -153,7 +165,6 @@ fn interseccion_segmentos(
     let t = qp.perp_dot(s) / rxs;
     let u = qp.perp_dot(r) / rxs;
 
-    // Evitamos contar los extremos como cruces
     if t > 0.06 && t < 0.94 && u > 0.06 && u < 0.94 {
         Some(a1 + r * t)
     } else {
@@ -207,7 +218,6 @@ pub fn dibuja_cables_permanentes(
         }
     }
 
-    // 1. Dibujamos cada segmento aplicando puentes de salto si cruza un segmento anterior de otro origen
     let radio_salto = 7.0;
     for i in 0..todos_segmentos.len() {
         let seg = &todos_segmentos[i];
@@ -219,7 +229,6 @@ pub fn dibuja_cables_permanentes(
         let u_dir = dir / lon;
         let normal = Vec2::new(-u_dir.y, u_dir.x);
 
-        // Buscamos cruces con segmentos anteriores (j < i) que tengan distinto conector de origen
         let mut cruces_dist: Vec<f32> = Vec::new();
         for j in 0..i {
             let otro = &todos_segmentos[j];
@@ -240,7 +249,6 @@ pub fn dibuja_cables_permanentes(
 
         cruces_dist.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
-        // Trazamos el segmento deteniéndonos en cada cruce para dibujar un arco (puente)
         let mut cursor_d = 0.0;
         for d_cruce in cruces_dist {
             if d_cruce - radio_salto > cursor_d {
@@ -248,7 +256,6 @@ pub fn dibuja_cables_permanentes(
                 let fin_tramo = seg.a + u_dir * (d_cruce - radio_salto);
                 gizmos.line_2d(ini_tramo, fin_tramo, seg.color);
 
-                // Dibujamos el puente semicircular de 8 lados sobre el cruce
                 let centro_arco = seg.a + u_dir * d_cruce;
                 let pasos_arco = 8;
                 let mut p_ant_arco = fin_tramo;
@@ -275,7 +282,6 @@ pub fn dibuja_cables_permanentes(
         }
     }
 
-    // 2. Dibujamos los codos y destacamos con un punto de soldadura grande las uniones eléctricas
     for (idx, &(pos_codo, orig_codo, col_codo)) in todos_codos.iter().enumerate() {
         let es_bifurcacion = todos_codos
             .iter()
@@ -285,7 +291,6 @@ pub fn dibuja_cables_permanentes(
             });
 
         if es_bifurcacion {
-            // Punto de soldadura relleno (dos círculos concéntricos)
             gizmos.circle_2d(pos_codo, 5.0, col_codo);
             gizmos.circle_2d(pos_codo, 2.5, col_codo);
         } else {
@@ -294,7 +299,7 @@ pub fn dibuja_cables_permanentes(
     }
 }
 
-// --- Bloque 5: Limpiar Cables Huérfanos ---
+// --- Bloque 6: Limpiar Cables Huérfanos ---
 pub fn limpiar_cables_huerfanos(
     q_cables: Query<(Entity, &Cable)>,
     q_conectores: Query<&TipoConector>,

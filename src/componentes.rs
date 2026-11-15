@@ -6,141 +6,113 @@
 use bevy::prelude::*;
 
 // --- Bloque 2: Estados de la Aplicación ---
-#[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
+#[derive(States, Default, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ModoApp {
     #[default]
     Edicion,
     CreandoLinea,
 }
 
-
-// ==========================================
-// Fichero: src/componentes.rs
-// Bloque: Bloque 3: Recursos Globales
-// ==========================================
+// --- Bloque 3: Recursos Globales ---
 #[derive(Resource, Default)]
 pub struct EstadoCrearLinea {
     pub origen_entidad: Option<Entity>,
     pub origen_pos: Vec2,
-    // Almacena los codos (waypoints) mientras trazamos el cable
     pub puntos_intermedios: Vec<Vec2>,
 }
 
-// Guarda qué codo de qué cable estamos arrastrando con el ratón
 #[derive(Resource, Default)]
 pub struct CodoArrastrado {
     pub seleccion: Option<(Entity, usize)>,
 }
 
-// Pila que guarda (nombre_chip, contenido_serializado) al entrar a ver un Chip
 #[derive(Resource, Default)]
 pub struct PilaInspeccion {
     pub niveles: Vec<(String, String)>,
 }
 
-// Pila de estados anteriores del lienzo para deshacer con Ctrl+Z (Undo)
 #[derive(Resource, Default)]
 pub struct HistorialUndo {
     pub estados: Vec<String>,
 }
 
-// ==========================================
-// Fichero: src/componentes.rs
-// Bloque: Bloque 4: Componentes de Nodos y Barras de Chip
-// ==========================================
+// --- Bloque 4: Componentes de Nodos, Etiquetas y Chips ---
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TipoPuerta {
     And,
     Or,
     Not,
-    // Resto de puertas lógicas fundamentales
     Nand,
     Nor,
     Xor,
     Xnor,
-    // Interruptor de entrada manual
     Interruptor,
-    // Elemento receptor final (LED / Bombilla)
     Led,
-    // Generador de pulsos de reloj
     Reloj,
-    // Display de 7 segmentos con 7 entradas directas (A..G)
     Display7Seg,
-    // Display de 7 segmentos con decodificador de 4 bits (8, 4, 2, 1)
     Display4Bits,
-    // Chip personalizado cargado desde un fichero .chp
     Chip,
 }
 
-// Ahora el nodo recuerda qué operación matemática debe hacer
 #[derive(Component)]
 pub struct NodoLogico {
     pub tipo: TipoPuerta,
 }
 
-// Representa un nodo interno dentro de un Chip empaquetado
 #[derive(Clone, Debug)]
 pub struct NodoInternoChip {
     pub cod_tipo: String,
     pub sub_chip: Option< Box<DatosChip> >,
 }
 
-// Estructura lógica interna de un Chip (nodos, cables y pines ordenados)
 #[derive(Clone, Debug, Default)]
 pub struct DatosChip {
     pub nombre: String,
     pub nodos: Vec<NodoInternoChip>,
-    // (idx_nodo_origen, pin_salida_origen, idx_nodo_destino, pin_entrada_destino)
     pub cables: Vec<(usize, usize, usize, usize)>,
-    // Índices de los nodos Interruptor pegados a la barra izquierda (de arriba a abajo)
     pub pines_entrada: Vec<usize>,
-    // NUEVO: Etiquetas de texto de cada pin de entrada (ej. "A", "B", "CIN")
     pub nombres_entrada: Vec<String>,
-    // Índices de los nodos LED pegados a la barra derecha (de arriba a abajo)
     pub pines_salida: Vec<usize>,
-    // NUEVO: Etiquetas de texto de cada pin de salida (ej. "SUM", "COUT")
     pub nombres_salida: Vec<String>,
 }
 
-// Componente que lleva cada bloque Chip instanciado en pantalla
 #[derive(Component, Clone)]
 pub struct InstanciaChip {
     pub datos: DatosChip,
     pub estados_nodos: Vec< Vec<bool> >,
 }
 
-// NUEVO: Almacena el nombre asignado a un Interruptor o LED (ej. "A", "SUM")
 #[derive(Component, Clone, Default)]
 pub struct EtiquetaNodo(pub String);
 
-// NUEVO: Identifica el Text2d hijo que muestra la etiqueta sobre el Interruptor/LED
+// Identifica el rectángulo negro de fondo detrás de la etiqueta del Pin
+#[derive(Component)]
+pub struct FondoEtiquetaNodo;
+
+// Identifica el texto verde claro de la etiqueta del Pin
 #[derive(Component)]
 pub struct TextoEtiquetaNodo;
 
-// Pequeño botón dentro del Chip para entrar a ver su circuito interno
 #[derive(Component)]
 pub struct BotonVerInteriorChip {
     pub archivo_chp: String,
 }
 
-// Identifica las dos barras laterales donde se pegan las patillas del Chip
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 pub enum BarraChip {
     IzquierdaEntradas,
     DerechaSalidas,
 }
 
-// Marca los Interruptores o LEDs que están "pegados" a una barra de Chip
 #[derive(Component)]
 pub struct PegadoABarra(pub BarraChip);
 
-// Identifica el cuadrado izquierdo que alterna entre 0 y 1
+// --- Bloque 5: Componentes Internos de Control Visual ---
 #[derive(Component)]
 pub struct BotonInterruptor {
     pub estado: bool,
 }
 
-// Identifica el cuadrado izquierdo del reloj que controla su frecuencia
 #[derive(Component)]
 pub struct ControlReloj {
     pub estado: bool,
@@ -148,27 +120,21 @@ pub struct ControlReloj {
     pub acumulador: f32,
 }
 
-// Identifica el texto que muestra los Hz dentro del reloj
 #[derive(Component)]
 pub struct TextoReloj;
 
-// Identifica el bloque luminoso del LED de salida
 #[derive(Component)]
 pub struct IndicadorLed;
 
-// Identifica el número de patilla de entrada (0, 1, 2...)
 #[derive(Component)]
 pub struct PinEntrada(pub usize);
 
-// Identifica el número de patilla de salida en un Chip (0, 1, 2...)
 #[derive(Component)]
 pub struct PinSalida(pub usize);
 
-// Identifica cada uno de los 7 segmentos luminosos (0 = A ... 6 = G)
 #[derive(Component)]
 pub struct SegmentoDisplay(pub usize);
 
-// Identifica el interior oscuro del conector para verse "hueco"
 #[derive(Component)]
 pub struct CentroHueco;
 
@@ -178,41 +144,32 @@ pub struct Arrastrando;
 #[derive(Component)]
 pub struct CamaraPrincipal;
 
-// Identifica el contenedor de la cuadrícula que acompaña a la cámara
 #[derive(Component)]
 pub struct CuadriculaFondo;
 
-// --- Bloque 5: Componentes de Conectores ---
+// --- Bloque 6: Componentes de Conectores y Cables ---
 #[derive(Component, PartialEq, Eq, Clone, Copy)]
 pub enum TipoConector {
     Entrada,
     Salida,
 }
 
-// Almacena el estado lógico actual (true = 1, false = 0)
 #[derive(Component)]
 pub struct ValorSeñal(pub bool);
 
-// --- Bloque 6: Componentes de Cables ---
 #[derive(Component)]
 pub struct Cable {
     pub origen: Entity,
     pub destino: Entity,
-    // Lista de codos intermedios por donde pasa el cable
     pub puntos_intermedios: Vec<Vec2>,
 }
 
-// ==========================================
-// Fichero: src/componentes.rs
-// Bloque: Bloque 7: Componentes del Menú Contextual
-// ==========================================
+// --- Bloque 7: Componentes de Menús, Diálogos y Barras UI ---
 #[derive(Component)]
 pub struct MenuContextual {
-    // Guardamos dónde se hizo clic derecho para crear ahí la pieza
     pub pos_creacion: Vec2,
 }
 
-// Identifica la columna secundaria del submenú y recuerda su categoría activa
 #[derive(Component)]
 pub struct SubMenuContextual {
     pub categoria: CategoriaMenu,
@@ -241,49 +198,39 @@ pub enum AccionMenu {
 #[derive(Component)]
 pub struct BotonMenu {
     pub accion: AccionMenu,
-    // Coordenada mundial directa del centro del botón para detección infalible
     pub centro_mundo: Vec2,
 }
 
-// Ventana flotante para teclear el nombre del fichero (.cir o .chp)
 #[derive(Component)]
 pub struct DialogoArchivo {
-    // true = Guardar Chip (.chp), false = Guardar Circuito (.cir)
     pub es_chip: bool,
     pub nombre: String,
 }
 
-// Etiqueta de texto dinámico dentro del cuadro de diálogo
 #[derive(Component)]
 pub struct TextoInputArchivo;
 
-// NUEVO: Ventana flotante para editar el nombre de un Pin (Interruptor o LED) con tecla N
 #[derive(Component)]
 pub struct DialogoEtiquetaPin {
     pub nodo_objetivo: Entity,
     pub texto: String,
 }
 
-// NUEVO: Texto dinámico dentro del cuadro de edición de nombre de Pin
 #[derive(Component)]
 pub struct TextoInputEtiqueta;
 
-// Ventana contenedora de la lista de ficheros .cir encontrados
 #[derive(Component)]
 pub struct SelectorCarga;
 
-// Botón individual para cada fichero .cir de la lista
 #[derive(Component)]
 pub struct BotonArchivoCir {
     pub nombre_archivo: String,
     pub centro_mundo: Vec2,
 }
 
-// Contenedor UI de la barra inferior flotante de Chips
 #[derive(Component)]
 pub struct BarraInferiorChips;
 
-// Botón UI en la barra inferior que instancia un Chip (.chp)
 #[derive(Component)]
 pub struct BotonChipInferior {
     pub archivo_chp: String,
@@ -291,10 +238,8 @@ pub struct BotonChipInferior {
     pub x_max: f32,
 }
 
-// Barra superior flotante cuando estamos viendo el interior de un Chip
 #[derive(Component)]
 pub struct BarraSuperiorInspeccion;
 
-// Botón superior para regresar al circuito anterior de la pila
 #[derive(Component)]
 pub struct BotonVolverInspeccion;

@@ -7,13 +7,12 @@ use bevy::prelude::*;
 use crate::componentes::*;
 use crate::configuracion::ConfigApp;
 
-// --- Bloque 2: Propagación de Cables ---
+// --- Bloque 2: Propagación de Señales por los Cables ---
 pub fn propagar_cables(
     q_cables: Query<&Cable>,
     q_conectores: Query<(Entity, &TipoConector)>,
     mut q_valores: Query<&mut ValorSeñal>,
 ) {
-    // 1. Por defecto, toda entrada desconectada empieza en 0 (false)
     for (ent, tipo) in q_conectores.iter() {
         if *tipo == TipoConector::Entrada {
             if let Ok(mut val) = q_valores.get_mut(ent) {
@@ -22,7 +21,6 @@ pub fn propagar_cables(
         }
     }
 
-    // 2. Copiamos el valor desde el origen al destino en los cables activos
     for cable in q_cables.iter() {
         if let Ok(val_origen) = q_valores.get(cable.origen) {
             let estado_copiado = val_origen.0;
@@ -34,7 +32,7 @@ pub fn propagar_cables(
     }
 }
 
-// --- Bloque 3: Evaluación de Puertas Lógicas y Chips ---
+// --- Bloque 3: Evaluación de Puertas Lógicas, Displays y Chips ---
 pub fn evaluar_puertas(
     mut q_puertas: Query<
         (Entity, &NodoLogico, Option<&mut InstanciaChip>), 
@@ -103,7 +101,6 @@ pub fn evaluar_puertas(
             }
         }
 
-        // Si es un Chip empaquetado, evaluamos su circuito interno
         if puerta.tipo == TipoPuerta::Chip {
             if let Some(mut chip) = opt_chip {
                 let InstanciaChip { 
@@ -137,7 +134,6 @@ pub fn evaluar_puertas(
             continue;
         }
 
-        // Calculamos el resultado según el tipo de puerta básica
         let resultado = match puerta.tipo {
             TipoPuerta::And => {
                 !valores_entradas.is_empty() 
@@ -239,7 +235,7 @@ pub fn evaluar_puertas(
     }
 }
 
-// Simula el interior de un Chip y devuelve el estado de sus pines de salida
+// --- Bloque 4: Simulación Recursiva de Chips y Decodificador Hexadecimal ---
 fn simular_red_chip(
     datos: &DatosChip,
     estados_nodos: &mut Vec< Vec<bool> >,
@@ -250,7 +246,6 @@ fn simular_red_chip(
         *estados_nodos = vec![vec![false; 1]; n_nodos];
     }
 
-    // 1. Inyectamos los valores de las patillas de entrada en los Interruptores anclados
     for (idx_pin, &idx_nodo) in datos.pines_entrada.iter().enumerate() {
         let v = entradas_ext.get(idx_pin).copied().unwrap_or(false);
         if idx_nodo < estados_nodos.len() {
@@ -262,18 +257,14 @@ fn simular_red_chip(
         }
     }
 
-    // 2. Iteramos varias pasadas para que la señal atraviese todas las puertas internas
     let pasadas = n_nodos.clamp(2, 12);
     for _ in 0..pasadas {
         for i in 0..n_nodos {
-            // Los interruptores de entrada mantienen el valor que viene del exterior
             if datos.pines_entrada.contains(&i) {
                 continue;
             }
 
-            // Recogemos los cables que entran al nodo i ordenados por patilla
             let mut in_pines = vec![false; 8];
-            let mut max_pin = 0;
             let mut tiene_cables = false;
 
             for &(orig, pin_out, dest, pin_in) in datos.cables.iter() {
@@ -281,9 +272,6 @@ fn simular_red_chip(
                     tiene_cables = true;
                     if pin_in >= in_pines.len() {
                         in_pines.resize(pin_in + 1, false);
-                    }
-                    if pin_in > max_pin {
-                        max_pin = pin_in;
                     }
                     let val_cable = estados_nodos
                         .get(orig)
@@ -296,7 +284,6 @@ fn simular_red_chip(
 
             let cod = datos.nodos[i].cod_tipo.as_str();
 
-            // Si este nodo interno es a su vez otro sub-chip, lo simulamos recursivamente
             if let Some(sub) = &datos.nodos[i].sub_chip {
                 let mut mem_sub = vec![vec![false; 1]; sub.nodos.len()];
                 let sal_sub = simular_red_chip(sub, &mut mem_sub, &in_pines);
@@ -327,7 +314,6 @@ fn simular_red_chip(
         }
     }
 
-    // 3. Recogemos el valor final de los LEDs pegados a la barra derecha
     let mut salidas_finales = Vec::with_capacity(datos.pines_salida.len());
     for &idx_led in datos.pines_salida.iter() {
         let v = estados_nodos
@@ -341,10 +327,8 @@ fn simular_red_chip(
     salidas_finales
 }
 
-// Tabla de verdad para convertir un número de 0 a 15 (0..F) en 7 segmentos (A..G)
 fn decodificar_hex_7seg(valor: u8) -> [bool; 7] {
     match valor {
-        //   A      B      C      D      E      F      G
         0 => [true,  true,  true,  true,  true,  true,  false],
         1 => [false, true,  true,  false, false, false, false],
         2 => [true,  true,  false, true,  true,  false, true ],
@@ -355,17 +339,17 @@ fn decodificar_hex_7seg(valor: u8) -> [bool; 7] {
         7 => [true,  true,  true,  false, false, false, false],
         8 => [true,  true,  true,  true,  true,  true,  true ],
         9 => [true,  true,  true,  true,  false, true,  true ],
-        10 => [true, true,  true,  false, true,  true,  true ], // A
-        11 => [false,false, true,  true,  true,  true,  true ], // b
-        12 => [true, false, false, true,  true,  true,  false], // C
-        13 => [false,true,  true,  true,  true,  false, true ], // d
-        14 => [true, false, false, true,  true,  true,  true ], // E
-        15 => [true, false, false, false, true,  true,  true ], // F
+        10 => [true, true,  true,  false, true,  true,  true ],
+        11 => [false,false, true,  true,  true,  true,  true ],
+        12 => [true, false, false, true,  true,  true,  false],
+        13 => [false,true,  true,  true,  true,  false, true ],
+        14 => [true, false, false, true,  true,  true,  true ],
+        15 => [true, false, false, false, true,  true,  true ],
         _ => [false; 7],
     }
 }
 
-// --- Bloque 4: Feedback Visual (Rojo, Verde o Hueco) ---
+// --- Bloque 5: Feedback Visual de Conectores ---
 pub fn actualizar_visuales_conectores(
     q_cables: Query<&Cable>,
     mut q_conectores: Query<
@@ -402,7 +386,7 @@ pub fn actualizar_visuales_conectores(
     }
 }
 
-// --- Bloque 5: Temporizador de Relojes ---
+// --- Bloque 6: Temporizador de Relojes ---
 pub fn actualizar_relojes(
     time: Res<Time>,
     mut q_relojes: Query<(&mut ControlReloj, &mut Sprite)>,

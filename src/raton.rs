@@ -1,237 +1,17 @@
-
 // ==========================================
 // Fichero: src/raton.rs
-// Bloque: Bloque 1: Importaciones
 // ==========================================
+
+// --- Bloque 1: Importaciones ---
 use bevy::prelude::*;
-use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::window::PrimaryWindow;
 use crate::componentes::*;
 use crate::configuracion::ConfigApp;
-use crate::archivo::{
-    abrir_dialogo_archivo, 
-    abrir_selector_carga,
-    PeticionEntrarChip,
-    PeticionRegistrarUndo,
-};
-use crate::{
-    crear_puerta, 
-    crear_interruptor, 
-    crear_led,
-    crear_reloj,
-    crear_display,
-    crear_barras_chip,
-};
-// ==========================================
-// Fichero: src/raton.rs
-// Bloque: Bloque 2A: Gestión de Hover y Clics en el Menú Contextual
-// ==========================================
-pub fn gestionar_clic_menu(
-    buttons: Res<ButtonInput<MouseButton>>,
-    q_windows: Query<&Window, With<PrimaryWindow>>,
-    q_camera: Query<
-        (&Camera, &GlobalTransform), 
-        With<CamaraPrincipal>
-    >,
-    q_nodos: Query<Entity, With<NodoLogico>>,
-    q_cables: Query<Entity, With<Cable>>,
-    q_barras: Query<Entity, With<BarraChip>>,
-    q_menu: Query<(Entity, &Transform, &MenuContextual)>,
-    q_submenu: Query<(Entity, &SubMenuContextual)>,
-    mut q_botones_menu: Query<(&BotonMenu, &mut Sprite)>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    mut commands: Commands,
-    config: Res<ConfigApp>,
-) {
-    let Ok((ent_menu, trf_menu, menu)) = q_menu.single() else {
-        return;
-    };
+use crate::menus::abrir_menu_contextual;
+use crate::lineas::ajustar_ortogonal_90;
+use crate::archivo::PeticionEntrarChip;
 
-    let Ok(window) = q_windows.single() else { return; };
-    let Ok((cam, cam_trf)) = q_camera.single() else { return; };
-
-    let Some(pos_pantalla) = window.cursor_position() else {
-        return;
-    };
-    let Ok(pos_mundo) = cam.viewport_to_world_2d(
-        cam_trf, 
-        pos_pantalla
-    ) else {
-        return;
-    };
-
-    let pos_cam = cam_trf.translation().truncate();
-
-    let mut accion_bajo_cursor = None;
-    let mitad_ancho = 65.0;
-    let mitad_alto = 16.0;
-
-    for (btn_menu, mut sprite) in q_botones_menu.iter_mut() {
-        let pos_btn = btn_menu.centro_mundo;
-        let dentro_x = (pos_mundo.x - pos_btn.x).abs() < mitad_ancho;
-        let dentro_y = (pos_mundo.y - pos_btn.y).abs() < mitad_alto;
-
-        if dentro_x && dentro_y {
-            accion_bajo_cursor = Some(btn_menu.accion);
-            sprite.color = Color::srgb(0.38, 0.48, 0.62);
-        } else {
-            sprite.color = Color::srgb(0.24, 0.28, 0.36);
-        }
-    }
-
-    // 1. HOVER AUTOMÁTICO: Desplegar submenú
-    if let Some(AccionMenu::AbrirCategoria(cat)) = accion_bajo_cursor {
-        let mut ya_abierto = false;
-        for (ent_sub, sub) in q_submenu.iter() {
-            if sub.categoria == cat {
-                ya_abierto = true;
-            } else {
-                commands.entity(ent_sub).despawn();
-            }
-        }
-
-        if !ya_abierto {
-            let pos_base = trf_menu.translation.truncate();
-            abrir_submenu(&mut commands, pos_base, cat);
-        }
-    }
-
-    // 2. CLIC IZQUIERDO
-    if !buttons.just_pressed(MouseButton::Left) {
-        return;
-    }
-
-    if let Some(accion) = accion_bajo_cursor {
-        match accion {
-            AccionMenu::AbrirCategoria(cat) => {
-                for (ent_sub, sub) in q_submenu.iter() {
-                    if sub.categoria != cat {
-                        commands.entity(ent_sub).despawn();
-                    }
-                }
-                let pos_base = trf_menu.translation.truncate();
-                abrir_submenu(&mut commands, pos_base, cat);
-                return;
-            }
-            AccionMenu::CrearNodo(tipo) => {
-                commands.spawn(PeticionRegistrarUndo);
-
-                let cuadricula = 50.0;
-                let pos_snap = Vec2::new(
-                    (menu.pos_creacion.x / cuadricula).round() 
-                        * cuadricula,
-                    (menu.pos_creacion.y / cuadricula).round() 
-                        * cuadricula,
-                );
-
-                match tipo {
-                    TipoPuerta::And 
-                    | TipoPuerta::Or 
-                    | TipoPuerta::Not 
-                    | TipoPuerta::Nand 
-                    | TipoPuerta::Nor 
-                    | TipoPuerta::Xor 
-                    | TipoPuerta::Xnor => {
-                        crear_puerta(
-                            &mut commands,
-                            &mut meshes,
-                            &mut materials,
-                            pos_snap, 
-                            tipo, 
-                            &config
-                        );
-                    }
-                    TipoPuerta::Interruptor => {
-                        crear_interruptor(
-                            &mut commands,
-                            &mut meshes,
-                            &mut materials,
-                            pos_snap,
-                            false,
-                            "",
-                            &config,
-                        );
-                    }
-                    TipoPuerta::Led => {
-                        crear_led(
-                            &mut commands,
-                            &mut meshes,
-                            &mut materials,
-                            pos_snap,
-                            "",
-                            &config,
-                        );
-                    }
-                    TipoPuerta::Reloj => {
-                        crear_reloj(
-                            &mut commands,
-                            &mut meshes,
-                            &mut materials,
-                            pos_snap,
-                            1,
-                            &config,
-                        );
-                    }
-                    TipoPuerta::Display4Bits => {
-                        crear_display(
-                            &mut commands,
-                            pos_snap,
-                            true,
-                            &config,
-                        );
-                    }
-                    TipoPuerta::Display7Seg => {
-                        crear_display(
-                            &mut commands,
-                            pos_snap,
-                            false,
-                            &config,
-                        );
-                    }
-                    TipoPuerta::Chip => {}
-                }
-            }
-            AccionMenu::AlternarBarrasChip => {
-                if q_barras.is_empty() {
-                    crear_barras_chip(&mut commands);
-                } else {
-                    for ent_b in q_barras.iter() {
-                        commands.entity(ent_b).despawn();
-                    }
-                }
-            }
-            AccionMenu::GuardarChip => {
-                abrir_dialogo_archivo(&mut commands, pos_cam, true);
-            }
-            AccionMenu::GuardarCircuito => {
-                abrir_dialogo_archivo(&mut commands, pos_cam, false);
-            }
-            AccionMenu::CargarCircuito => {
-                abrir_selector_carga(&mut commands, pos_cam);
-            }
-            AccionMenu::LimpiarTodo => {
-                commands.spawn(PeticionRegistrarUndo);
-                for ent_n in q_nodos.iter() {
-                    commands.entity(ent_n).despawn();
-                }
-                for ent_c in q_cables.iter() {
-                    commands.entity(ent_c).despawn();
-                }
-            }
-        }
-    }
-
-    commands.entity(ent_menu).despawn();
-    for (ent_sub, _) in q_submenu.iter() {
-        commands.entity(ent_sub).despawn();
-    }
-}
-
-// ==========================================
-// Fichero: src/raton.rs
-// Bloque: Bloque 2B: Clic en Nodos, Conectores y Codos de Cable
-// ==========================================
+// --- Bloque 2: Detectar Clic Izquierdo en Nodos, Conectores y Codos ---
 pub fn detectar_clic_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -308,7 +88,7 @@ pub fn detectar_clic_nodo(
         q_botones_ver_chip
     ) = controles_nodos;
 
-    // MODO CREANDO LÍNEA: Añadir codo o finalizar cable en una Entrada
+    // MODO CREANDO LÍNEA: Añadir codo (con soporte 90° en tecla L) o finalizar cable
     if *estado_app.get() == ModoApp::CreandoLinea {
         for (ent_destino, g_trf, tipo) in q_conectores.iter() {
             let pos_conector = g_trf.translation().truncate();
@@ -320,7 +100,6 @@ pub fn detectar_clic_nodo(
 
                     if !ocupada {
                         if let Some(orig) = estado_linea.origen_entidad {
-                            commands.spawn(PeticionRegistrarUndo);
                             commands.spawn(Cable {
                                 origen: orig,
                                 destino: ent_destino,
@@ -337,10 +116,23 @@ pub fn detectar_clic_nodo(
             }
         }
 
+        // Si mantiene pulsada la tecla L, forzamos ángulo de 90° respecto al punto previo
+        let pto_previo = estado_linea
+            .puntos_intermedios
+            .last()
+            .copied()
+            .unwrap_or(estado_linea.origen_pos);
+
+        let pos_objetivo = if keys.pressed(KeyCode::KeyL) {
+            ajustar_ortogonal_90(pto_previo, pos_mundo)
+        } else {
+            pos_mundo
+        };
+
         let paso_codo = config.paso_snap_codo;
         let codo_snap = Vec2::new(
-            (pos_mundo.x / paso_codo).round() * paso_codo,
-            (pos_mundo.y / paso_codo).round() * paso_codo,
+            (pos_objetivo.x / paso_codo).round() * paso_codo,
+            (pos_objetivo.y / paso_codo).round() * paso_codo,
         );
         estado_linea.puntos_intermedios.push(codo_snap);
         return;
@@ -365,7 +157,6 @@ pub fn detectar_clic_nodo(
     for (ent_cable, cable) in q_cables.iter() {
         for (idx, &pos_codo) in cable.puntos_intermedios.iter().enumerate() {
             if pos_mundo.distance(pos_codo) < 10.0 {
-                commands.spawn(PeticionRegistrarUndo);
                 codo_arrastrado.seleccion = Some((ent_cable, idx));
                 return;
             }
@@ -429,13 +220,13 @@ pub fn detectar_clic_nodo(
     for (entidad, trf) in q_nodos.iter() {
         let centro_nodo = trf.translation.truncate();
         if pos_mundo.distance(centro_nodo) < config.rad_clic_nodo {
-            commands.spawn(PeticionRegistrarUndo);
             commands.entity(entidad).insert(Arrastrando);
             return; 
         }
     }
 }
-// --- Bloque 3: Soltar Ratón, Codos e Imantar a Barras de Chip ---
+
+// --- Bloque 3: Soltar Ratón, Snap Diferenciado (Puertas vs I/O) e Imantar a Barras ---
 pub fn soltar_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
     mut q_arrastrando: Query<
@@ -475,13 +266,20 @@ pub fn soltar_nodo(
         return;
     }
 
-    // 1. Soltar nodos arrastrados y comprobar si se pegan a una Barra de Chip
+    // 1. Soltar nodos arrastrados: Interruptores y LEDs usan paso_snap_io (5px)
+    //    para poder colocarse en posiciones intermedias; el resto usa paso_snap_puerta (50px).
     for (entidad, mut trf, nodo) in q_arrastrando.iter_mut() {
-        let cuadricula = 50.0;
-        let mut x_final = 
-            (trf.translation.x / cuadricula).round() * cuadricula;
-        let y_final = 
-            (trf.translation.y / cuadricula).round() * cuadricula;
+        let paso = if matches!(
+            nodo.tipo, 
+            TipoPuerta::Interruptor | TipoPuerta::Led
+        ) {
+            config.paso_snap_io
+        } else {
+            config.paso_snap_puerta
+        };
+
+        let mut x_final = (trf.translation.x / paso).round() * paso;
+        let y_final = (trf.translation.y / paso).round() * paso;
 
         let mut barra_pegada = None;
 
@@ -542,7 +340,6 @@ pub fn soltar_nodo(
                                 if let Some(orig) = 
                                     estado_linea.origen_entidad 
                                 {
-                                    commands.spawn(PeticionRegistrarUndo);
                                     commands.spawn(Cable {
                                         origen: orig,
                                         destino: ent_destino,
@@ -561,13 +358,15 @@ pub fn soltar_nodo(
     }
 }
 
-// --- Bloque 4: Mover Nodo o Codo Arrastrado ---
+// --- Bloque 4: Mover Nodo o Codo Arrastrado (con Soporte 90° en Tecla L) ---
 pub fn mover_nodo_arrastrado(
+    keys: Res<ButtonInput<KeyCode>>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
     q_camera: Query<
         (&Camera, &GlobalTransform), 
         With<CamaraPrincipal>
     >,
+    q_global_trf: Query<&GlobalTransform>,
     mut q_arrastrando: Query<&mut Transform, With<Arrastrando>>,
     codo_arrastrado: Res<CodoArrastrado>,
     mut q_cables: Query<&mut Cable>,
@@ -587,8 +386,26 @@ pub fn mover_nodo_arrastrado(
 
             if let Some((ent_cable, idx)) = codo_arrastrado.seleccion {
                 if let Ok(mut cable) = q_cables.get_mut(ent_cable) {
+                    // Punto anterior al codo para bloquear a 90° si pulsa L
+                    let pto_ref = if idx > 0 {
+                        cable.puntos_intermedios.get(idx - 1).copied()
+                    } else {
+                        q_global_trf
+                            .get(cable.origen)
+                            .ok()
+                            .map(|t| t.translation().truncate())
+                    };
+
                     if let Some(codo) = cable.puntos_intermedios.get_mut(idx) {
-                        *codo = pos_mundo;
+                        if keys.pressed(KeyCode::KeyL) {
+                            if let Some(base) = pto_ref {
+                                *codo = ajustar_ortogonal_90(base, pos_mundo);
+                            } else {
+                                *codo = pos_mundo;
+                            }
+                        } else {
+                            *codo = pos_mundo;
+                        }
                     }
                 }
             }
@@ -641,17 +458,14 @@ pub fn borrar_con_clic_derecho(
             cam_trf, 
             pos_pantalla
         ) {
-            // 1. Intentamos borrar una puerta lógica si el ratón está encima
             for (ent_nodo, trf) in q_nodos.iter() {
                 let centro = trf.translation.truncate();
                 if pos_mundo.distance(centro) < config.rad_clic_nodo {
-                    commands.spawn(PeticionRegistrarUndo);
                     commands.entity(ent_nodo).despawn();
                     return;
                 }
             }
 
-            // 2A. Borrar SOLO un codo si hace clic derecho sobre la esquina
             let mut codo_a_borrar = None;
             for (ent_c, cable) in q_cables.iter() {
                 if let Some(idx) = cable
@@ -665,14 +479,12 @@ pub fn borrar_con_clic_derecho(
             }
 
             if let Some((ent_c, idx)) = codo_a_borrar {
-                commands.spawn(PeticionRegistrarUndo);
                 if let Ok((_, mut cable)) = q_cables.get_mut(ent_c) {
                     cable.puntos_intermedios.remove(idx);
                 }
                 return;
             }
 
-            // 2B. Borrar el cable entero si hace clic derecho sobre un tramo recto
             for (ent_cable, cable) in q_cables.iter() {
                 if let (Ok(trf_ori), Ok(trf_des)) = (
                     q_global_trf.get(cable.origen),
@@ -695,7 +507,6 @@ pub fn borrar_con_clic_derecho(
                             let t = (ap.dot(ab) / len_sq).clamp(0.0, 1.0);
                             let cercano = a + ab * t;
                             if pos_mundo.distance(cercano) < 8.0 {
-                                commands.spawn(PeticionRegistrarUndo);
                                 commands.entity(ent_cable).despawn();
                                 return;
                             }
@@ -704,223 +515,7 @@ pub fn borrar_con_clic_derecho(
                 }
             }
 
-            // 3. Si estamos en vacío, abrimos el menú principal compacto
             abrir_menu_contextual(&mut commands, pos_mundo);
-        }
-    }
-}
-
-// --- Bloque 6: Creador del Menú Principal y Submenús ---
-fn abrir_menu_contextual(
-    commands: &mut Commands, 
-    pos: Vec2
-) {
-    let categorias = [
-        ("Puertas  >>", AccionMenu::AbrirCategoria(CategoriaMenu::Puertas)),
-        ("Entradas >>", AccionMenu::AbrirCategoria(CategoriaMenu::Entradas)),
-        ("Salidas  >>", AccionMenu::AbrirCategoria(CategoriaMenu::Salidas)),
-        ("Chip     >>", AccionMenu::AbrirCategoria(CategoriaMenu::Chip)),
-        ("Archivo  >>", AccionMenu::AbrirCategoria(CategoriaMenu::Archivo)),
-    ];
-
-    let ancho_btn = 130.0;
-    let alto_btn = 32.0;
-    let separacion = 36.0;
-    let total_alto = (categorias.len() as f32) * separacion + 10.0;
-
-    commands.spawn((
-        Sprite {
-            color: Color::srgb(0.12, 0.12, 0.15),
-            custom_size: Some(Vec2::new(ancho_btn + 12.0, total_alto)),
-            ..default()
-        },
-        Transform::from_xyz(pos.x, pos.y, 5.0),
-        MenuContextual { pos_creacion: pos },
-    ))
-    .with_children(|padre| {
-        let inicio_y = 
-            ((categorias.len() as f32 - 1.0) * separacion) / 2.0;
-
-        for (i, (texto, accion)) in categorias.iter().enumerate() {
-            let y = inicio_y - (i as f32 * separacion);
-            let centro_mundo = Vec2::new(pos.x, pos.y + y);
-
-            padre.spawn((
-                Sprite {
-                    color: Color::srgb(0.24, 0.28, 0.36),
-                    custom_size: Some(Vec2::new(ancho_btn, alto_btn)),
-                    ..default()
-                },
-                Transform::from_xyz(0.0, y, 0.1),
-                BotonMenu { 
-                    accion: *accion,
-                    centro_mundo,
-                },
-            ))
-            .with_children(|btn| {
-                btn.spawn((
-                    Text2d::new(*texto),
-                    TextFont {
-                        font_size: bevy::text::FontSize::Px(15.0),
-                        ..default()
-                    },
-                    TextColor(Color::WHITE),
-                    Transform::from_xyz(0.0, 0.0, 0.1),
-                ));
-            });
-        }
-    });
-}
-
-fn abrir_submenu(
-    commands: &mut Commands,
-    pos_menu_principal: Vec2,
-    categoria: CategoriaMenu,
-) {
-    let opciones: Vec<(&str, AccionMenu)> = match categoria {
-        CategoriaMenu::Puertas => vec![
-            ("Puerta AND", AccionMenu::CrearNodo(TipoPuerta::And)),
-            ("Puerta OR", AccionMenu::CrearNodo(TipoPuerta::Or)),
-            ("Puerta NOT", AccionMenu::CrearNodo(TipoPuerta::Not)),
-            ("Puerta NAND", AccionMenu::CrearNodo(TipoPuerta::Nand)),
-            ("Puerta NOR", AccionMenu::CrearNodo(TipoPuerta::Nor)),
-            ("Puerta XOR", AccionMenu::CrearNodo(TipoPuerta::Xor)),
-            ("Puerta XNOR", AccionMenu::CrearNodo(TipoPuerta::Xnor)),
-        ],
-        CategoriaMenu::Entradas => vec![
-            ("Interruptor", AccionMenu::CrearNodo(TipoPuerta::Interruptor)),
-            ("Reloj (Clock)", AccionMenu::CrearNodo(TipoPuerta::Reloj)),
-        ],
-        CategoriaMenu::Salidas => vec![
-            ("LED Salida", AccionMenu::CrearNodo(TipoPuerta::Led)),
-            ("Display 4-Bits", AccionMenu::CrearNodo(TipoPuerta::Display4Bits)),
-            ("Display 7-Seg", AccionMenu::CrearNodo(TipoPuerta::Display7Seg)),
-        ],
-        CategoriaMenu::Chip => vec![
-            ("Barras I/O", AccionMenu::AlternarBarrasChip),
-            ("Guardar .chp", AccionMenu::GuardarChip),
-        ],
-        CategoriaMenu::Archivo => vec![
-            ("Guardar .cir", AccionMenu::GuardarCircuito),
-            ("Cargar .cir", AccionMenu::CargarCircuito),
-            ("Limpiar Todo", AccionMenu::LimpiarTodo),
-        ],
-    };
-
-    let ancho_btn = 130.0;
-    let alto_btn = 32.0;
-    let separacion = 36.0;
-    let total_alto = (opciones.len() as f32) * separacion + 10.0;
-
-    let pos_sub = Vec2::new(
-        pos_menu_principal.x + ancho_btn + 14.0,
-        pos_menu_principal.y,
-    );
-
-    commands.spawn((
-        Sprite {
-            color: Color::srgb(0.15, 0.16, 0.20),
-            custom_size: Some(Vec2::new(ancho_btn + 12.0, total_alto)),
-            ..default()
-        },
-        Transform::from_xyz(pos_sub.x, pos_sub.y, 5.5),
-        SubMenuContextual { categoria },
-    ))
-    .with_children(|padre| {
-        let inicio_y = 
-            ((opciones.len() as f32 - 1.0) * separacion) / 2.0;
-
-        for (i, (texto, accion)) in opciones.iter().enumerate() {
-            let y = inicio_y - (i as f32 * separacion);
-            let centro_mundo = Vec2::new(pos_sub.x, pos_sub.y + y);
-
-            padre.spawn((
-                Sprite {
-                    color: Color::srgb(0.24, 0.28, 0.36),
-                    custom_size: Some(Vec2::new(ancho_btn, alto_btn)),
-                    ..default()
-                },
-                Transform::from_xyz(0.0, y, 0.1),
-                BotonMenu { 
-                    accion: *accion,
-                    centro_mundo,
-                },
-            ))
-            .with_children(|btn| {
-                btn.spawn((
-                    Text2d::new(*texto),
-                    TextFont {
-                        font_size: bevy::text::FontSize::Px(15.0),
-                        ..default()
-                    },
-                    TextColor(Color::WHITE),
-                    Transform::from_xyz(0.0, 0.0, 0.1),
-                ));
-            });
-        }
-    });
-}
-
-// ==========================================
-// Fichero: src/raton.rs
-// Bloque: Bloque 7: Movimiento (Pan) y Zoom de la Cámara en Lienzo Infinito
-// ==========================================
-pub fn controlar_camara(
-    time: Res<Time>,
-    buttons: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
-    mut ev_motion: MessageReader<MouseMotion>,
-    mut ev_scroll: MessageReader<MouseWheel>,
-    q_dialogos: Query<
-        Entity, 
-        Or<(With<DialogoArchivo>, With<DialogoEtiquetaPin>)>
-    >,
-    mut q_cam: Query<&mut Transform, With<CamaraPrincipal>>,
-) {
-    let Ok(mut cam_trf) = q_cam.single_mut() else {
-        return;
-    };
-
-    let mut delta_raton = Vec2::ZERO;
-    for ev in ev_motion.read() {
-        delta_raton += ev.delta;
-    }
-
-    let arrastrando_lienzo = buttons.pressed(MouseButton::Middle)
-        || (keys.pressed(KeyCode::Space) && buttons.pressed(MouseButton::Left));
-
-    if arrastrando_lienzo {
-        let escala_actual = cam_trf.scale.x;
-        cam_trf.translation.x -= delta_raton.x * escala_actual;
-        cam_trf.translation.y += delta_raton.y * escala_actual;
-    }
-
-    if q_dialogos.is_empty() {
-        let vel_pan = 500.0 * time.delta_secs() * cam_trf.scale.x;
-        if keys.pressed(KeyCode::ArrowLeft) {
-            cam_trf.translation.x -= vel_pan;
-        }
-        if keys.pressed(KeyCode::ArrowRight) {
-            cam_trf.translation.x += vel_pan;
-        }
-        if keys.pressed(KeyCode::ArrowUp) {
-            cam_trf.translation.y += vel_pan;
-        }
-        if keys.pressed(KeyCode::ArrowDown) {
-            cam_trf.translation.y -= vel_pan;
-        }
-        if keys.just_pressed(KeyCode::Home) {
-            cam_trf.translation.x = 0.0;
-            cam_trf.translation.y = 0.0;
-            cam_trf.scale = Vec3::ONE;
-        }
-    }
-
-    for ev in ev_scroll.read() {
-        if ev.y.abs() > 0.001 {
-            let factor = if ev.y > 0.0 { 0.90 } else { 1.10 };
-            let nueva_escala = (cam_trf.scale.x * factor).clamp(0.25, 4.0);
-            cam_trf.scale = Vec3::new(nueva_escala, nueva_escala, 1.0);
         }
     }
 }

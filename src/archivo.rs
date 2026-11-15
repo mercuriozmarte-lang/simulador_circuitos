@@ -8,6 +8,10 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use crate::componentes::*;
 use crate::configuracion::ConfigApp;
+use crate::menus::{
+    reconstruir_barra_inferior_chips,
+    reconstruir_barra_superior_inspeccion,
+};
 use crate::{
     crear_puerta,
     crear_interruptor,
@@ -16,34 +20,23 @@ use crate::{
     crear_display,
     crear_barras_chip,
     crear_chip_personalizado,
+    ancho_caja_etiqueta,
 };
 
-// ==========================================
-// Fichero: src/archivo.rs
-// Bloque: Bloque 2: Eventos de Guardado, Carga, Inspección y Undo
-// ==========================================
+// --- Bloque 2: Eventos de Guardado, Carga e Inspección de Chips ---
 #[derive(Component)]
 pub struct PeticionGuardar(pub String);
 
 #[derive(Component)]
 pub struct PeticionCargar(pub String);
 
-// Petición para entrar a ver el interior de un archivo .chp
 #[derive(Component)]
 pub struct PeticionEntrarChip(pub String);
 
-// Petición para volver al circuito anterior de la pila
 #[derive(Component)]
 pub struct PeticionSalirChip;
 
-// NUEVO: Petición para registrar una instantánea en el historial de Ctrl+Z
-#[derive(Component)]
-pub struct PeticionRegistrarUndo;
-
-// ==========================================
-// Fichero: src/archivo.rs
-// Bloque: Bloque 3: Creador del Cuadro de Diálogo (.cir o .chp)
-// ==========================================
+// --- Bloque 3: Creador del Cuadro de Diálogo (.cir o .chp) ---
 pub fn abrir_dialogo_archivo(
     commands: &mut Commands,
     pos_cam: Vec2,
@@ -109,10 +102,7 @@ pub fn abrir_dialogo_archivo(
     });
 }
 
-// ==========================================
-// Fichero: src/archivo.rs
-// Bloque: Bloque 4: Selector Visual de Ficheros .cir para Cargar
-// ==========================================
+// --- Bloque 4: Selector Visual de Ficheros .cir para Cargar ---
 pub fn abrir_selector_carga(
     commands: &mut Commands,
     pos_cam: Vec2,
@@ -191,7 +181,6 @@ pub fn abrir_selector_carga(
     });
 }
 
-// Lista los archivos del directorio filtrando por extensión ("cir" o "chp")
 pub fn listar_archivos_por_ext(extension_buscada: &str) -> Vec<String> {
     let mut archivos = Vec::new();
     if let Ok(entradas) = fs::read_dir(".") {
@@ -214,10 +203,7 @@ pub fn listar_archivos_por_ext(extension_buscada: &str) -> Vec<String> {
     archivos
 }
 
-// ==========================================
-// Fichero: src/archivo.rs
-// Bloque: Bloque 5: Interacción con la Lista de Ficheros .cir
-// ==========================================
+// --- Bloque 5: Interacción con la Lista de Ficheros .cir ---
 pub fn gestionar_clic_selector_carga(
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -376,10 +362,7 @@ pub fn gestionar_teclado_archivo(
     }
 }
 
-// ==========================================
-// Fichero: src/archivo.rs
-// Bloque: Bloque 6B: Diálogo para Nombrar Pines con la Tecla N
-// ==========================================
+// --- Bloque 7: Diálogo para Nombrar Pines con la Tecla N (Fondo Negro / Letra Verde) ---
 pub fn gestionar_nombrado_pin(
     keys: Res<ButtonInput<KeyCode>>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
@@ -401,10 +384,10 @@ pub fn gestionar_nombrado_pin(
         &mut Text2d, 
         (With<TextoEtiquetaNodo>, Without<TextoInputEtiqueta>)
     >,
+    mut q_fondo_etq: Query<(&mut Sprite, &mut Visibility), With<FondoEtiquetaNodo>>,
     mut commands: Commands,
     config: Res<ConfigApp>,
 ) {
-    // 1. Si el cuadro de diálogo de etiqueta está abierto, procesamos las teclas
     if let Ok((ent_dlg, mut dlg)) = q_dlg_pin.single_mut() {
         if keys.just_pressed(KeyCode::Escape) {
             commands.entity(ent_dlg).despawn();
@@ -417,9 +400,21 @@ pub fn gestionar_nombrado_pin(
                 q_nodos_etq.get_mut(dlg.nodo_objetivo) 
             {
                 etq.0 = nuevo_nom.clone();
+                let nuevo_ancho = ancho_caja_etiqueta(&nuevo_nom);
+
                 for hijo in hijos.iter() {
                     if let Ok(mut txt) = q_txt_nodo.get_mut(hijo) {
                         txt.0 = nuevo_nom.clone();
+                    }
+                    if let Ok((mut spr_fondo, mut vis_fondo)) = 
+                        q_fondo_etq.get_mut(hijo) 
+                    {
+                        if nuevo_nom.is_empty() {
+                            *vis_fondo = Visibility::Hidden;
+                        } else {
+                            *vis_fondo = Visibility::Inherited;
+                            spr_fondo.custom_size = Some(Vec2::new(nuevo_ancho, 20.0));
+                        }
                     }
                 }
             }
@@ -464,7 +459,6 @@ pub fn gestionar_nombrado_pin(
         return;
     }
 
-    // 2. Si pulsa la tecla N con el cursor sobre un Interruptor o LED, abrimos el cuadro
     if !q_bloqueos.is_empty() || !keys.just_pressed(KeyCode::KeyN) {
         return;
     }
@@ -519,7 +513,7 @@ pub fn gestionar_nombrado_pin(
                         font_size: bevy::text::FontSize::Px(18.0),
                         ..default()
                     },
-                    TextColor(Color::srgb(0.2, 0.95, 0.4)),
+                    TextColor(Color::srgb(0.25, 1.0, 0.35)),
                     Transform::from_xyz(0.0, -12.0, 0.2),
                     TextoInputEtiqueta,
                 ));
@@ -529,10 +523,7 @@ pub fn gestionar_nombrado_pin(
     }
 }
 
-// ==========================================
-// Fichero: src/archivo.rs
-// Bloque: Bloque 7: Sistema de Guardado, Carga, Inspección y Ctrl+Z
-// ==========================================
+// --- Bloque 8: Sistema de Guardado, Carga, Inspección y Ctrl+Z ---
 pub fn procesar_guardado_y_carga(
     keys: Res<ButtonInput<KeyCode>>,
     estado_app: Res<State<ModoApp>>,
@@ -543,7 +534,6 @@ pub fn procesar_guardado_y_carga(
         Query<(Entity, &PeticionCargar)>,
         Query<(Entity, &PeticionEntrarChip)>,
         Query<Entity, With<PeticionSalirChip>>,
-        Query<Entity, With<PeticionRegistrarUndo>>,
     ),
     q_nodos: Query<(
         Entity, 
@@ -581,8 +571,7 @@ pub fn procesar_guardado_y_carga(
         q_guardar, 
         q_cargar, 
         q_entrar, 
-        q_salir, 
-        q_reg_undo
+        q_salir,
     ) = peticiones;
     let (
         q_barras, 
@@ -601,10 +590,6 @@ pub fn procesar_guardado_y_carga(
         mut pila_inspeccion, 
         mut historial_undo
     ) = recursos_historial;
-
-    for ent in q_reg_undo.iter() {
-        commands.entity(ent).despawn();
-    }
 
     // 0A. Detectar pulsación de CTRL + Z para deshacer (Undo)
     let ctrl = keys.pressed(KeyCode::ControlLeft) 
@@ -787,10 +772,7 @@ pub fn procesar_guardado_y_carga(
     }
 }
 
-// ==========================================
-// Fichero: src/archivo.rs
-// Bloque: Bloque 8: Lógica de Serialización a Texto (con Etiquetas de Pines)
-// ==========================================
+// --- Bloque 9: Lógica de Serialización a Texto ---
 pub fn serializar_circuito_a_texto(
     q_nodos: &Query<(
         Entity, 
@@ -981,10 +963,7 @@ fn guardar_en_disco(
     }
 }
 
-// ==========================================
-// Fichero: src/archivo.rs
-// Bloque: Bloque 9: Lógica de Lectura y Reconstrucción en Lienzo
-// ==========================================
+// --- Bloque 10: Lógica de Lectura y Reconstrucción en Lienzo ---
 pub fn reconstruir_circuito_desde_texto(
     contenido: &str,
     q_nodos: &Query<(
@@ -1190,10 +1169,7 @@ fn cargar_desde_disco(
     println!("Circuito cargado correctamente desde {}", ruta_archivo);
 }
 
-// ==========================================
-// Fichero: src/archivo.rs
-// Bloque: Bloque 10: Lector de Estructura Interna de Chip (.chp) con Nombres de Pines
-// ==========================================
+// --- Bloque 11: Lector de Estructura Interna de Chip (.chp) ---
 pub fn leer_datos_chip_desde_chp(ruta_archivo: &str) -> Option<DatosChip> {
     let contenido = fs::read_to_string(ruta_archivo).ok()?;
     let nombre_limpio = ruta_archivo
@@ -1291,263 +1267,4 @@ pub fn leer_datos_chip_desde_chp(ruta_archivo: &str) -> Option<DatosChip> {
         pines_salida,
         nombres_salida,
     })
-}
-
-// --- Bloque 11: Barra Inferior Flotante de Chips y Barra Superior de Inspección ---
-pub fn reconstruir_barra_inferior_chips(
-    commands: &mut Commands,
-    q_barra_existente: &Query<Entity, With<BarraInferiorChips>>,
-) {
-    for ent in q_barra_existente.iter() {
-        commands.entity(ent).despawn();
-    }
-
-    let archivos_chp = listar_archivos_por_ext("chp");
-    let mut chips_validos = Vec::new();
-
-    for arch in archivos_chp {
-        if let Some(datos) = leer_datos_chip_desde_chp(&arch) {
-            chips_validos.push((arch, datos.nombre));
-        }
-    }
-
-    commands.spawn((
-        Node {
-            position_type: PositionType::Absolute,
-            bottom: Val::Px(10.0),
-            left: Val::Px(16.0),
-            right: Val::Px(16.0),
-            height: Val::Px(46.0),
-            align_items: AlignItems::Center,
-            justify_content: JustifyContent::FlexStart,
-            column_gap: Val::Px(10.0),
-            padding: UiRect::horizontal(Val::Px(14.0)),
-            ..default()
-        },
-        BackgroundColor(Color::srgba(0.08, 0.09, 0.12, 0.92)),
-        BarraInferiorChips,
-    ))
-    .with_children(|barra| {
-        barra.spawn((
-            Node {
-                width: Val::Px(60.0),
-                ..default()
-            },
-            Text::new("CHIPS:"),
-            TextFont {
-                font_size: bevy::text::FontSize::Px(14.0),
-                ..default()
-            },
-            TextColor(Color::srgb(0.65, 0.75, 0.90)),
-        ));
-
-        if chips_validos.is_empty() {
-            barra.spawn((
-                Text::new(
-                    "(Usa Chip >> Guardar .chp con entradas/salidas en las barras para crear un Chip)"
-                ),
-                TextFont {
-                    font_size: bevy::text::FontSize::Px(13.0),
-                    ..default()
-                },
-                TextColor(Color::srgb(0.5, 0.52, 0.58)),
-            ));
-        } else {
-            let mut cursor_x = 100.0;
-            let ancho_fijo_btn = 110.0;
-            let gap = 10.0;
-
-            for (archivo_chp, nombre_chip) in chips_validos {
-                let x_min = cursor_x;
-                let x_max = cursor_x + ancho_fijo_btn;
-                cursor_x = x_max + gap;
-
-                barra.spawn((
-                    Node {
-                        width: Val::Px(ancho_fijo_btn),
-                        height: Val::Px(32.0),
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgb(0.20, 0.34, 0.50)),
-                    BotonChipInferior { 
-                        archivo_chp,
-                        x_min,
-                        x_max,
-                    },
-                ))
-                .with_children(|btn| {
-                    btn.spawn((
-                        Text::new(format!("+ {}", nombre_chip)),
-                        TextFont {
-                            font_size: bevy::text::FontSize::Px(14.0),
-                            ..default()
-                        },
-                        TextColor(Color::WHITE),
-                    ));
-                });
-            }
-        }
-    });
-}
-
-// NUEVO: Construye la barra superior con el botón [< VOLVER] cuando estamos dentro de un Chip
-pub fn reconstruir_barra_superior_inspeccion(
-    commands: &mut Commands,
-    q_barra_sup: &Query<Entity, With<BarraSuperiorInspeccion>>,
-    pila: &PilaInspeccion,
-) {
-    for ent in q_barra_sup.iter() {
-        commands.entity(ent).despawn();
-    }
-
-    if pila.niveles.is_empty() {
-        return;
-    }
-
-    let ruta_migas: Vec<&str> = pila
-        .niveles
-        .iter()
-        .map(|(nom, _)| nom.as_str())
-        .collect();
-    let texto_ruta = format!(
-        "VIENDO INTERIOR DE: Principal > {}",
-        ruta_migas.join(" > ")
-    );
-
-    commands.spawn((
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(10.0),
-            left: Val::Px(16.0),
-            right: Val::Px(16.0),
-            height: Val::Px(44.0),
-            align_items: AlignItems::Center,
-            justify_content: JustifyContent::FlexStart,
-            column_gap: Val::Px(16.0),
-            padding: UiRect::horizontal(Val::Px(14.0)),
-            ..default()
-        },
-        BackgroundColor(Color::srgba(0.14, 0.10, 0.22, 0.94)),
-        BarraSuperiorInspeccion,
-    ))
-    .with_children(|barra| {
-        // Botón [< VOLVER] situado entre X = 30 y X = 190
-        barra.spawn((
-            Node {
-                width: Val::Px(160.0),
-                height: Val::Px(30.0),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            BackgroundColor(Color::srgb(0.65, 0.25, 0.25)),
-            BotonVolverInspeccion,
-        ))
-        .with_children(|btn| {
-            btn.spawn((
-                Text::new("< VOLVER ATRÁS"),
-                TextFont {
-                    font_size: bevy::text::FontSize::Px(14.0),
-                    ..default()
-                },
-                TextColor(Color::WHITE),
-            ));
-        });
-
-        barra.spawn((
-            Text::new(texto_ruta),
-            TextFont {
-                font_size: bevy::text::FontSize::Px(14.0),
-                ..default()
-            },
-            TextColor(Color::srgb(0.90, 0.85, 1.0)),
-        ));
-    });
-}
-
-pub fn gestionar_clic_barra_inferior(
-    buttons: Res<ButtonInput<MouseButton>>,
-    q_windows: Query<&Window, With<PrimaryWindow>>,
-    q_camera: Query<&Transform, With<CamaraPrincipal>>,
-    mut q_botones_inf: Query<
-        (&BotonChipInferior, &mut BackgroundColor),
-        Without<BotonVolverInspeccion>,
-    >,
-    mut q_boton_volver: Query<
-        &mut BackgroundColor,
-        With<BotonVolverInspeccion>,
-    >,
-    mut commands: Commands,
-    config: Res<ConfigApp>,
-) {
-    let Ok(window) = q_windows.single() else { return; };
-    let Some(pos_cursor) = window.cursor_position() else {
-        return;
-    };
-
-    // 1. Comprobar clic en el botón superior [< VOLVER ATRÁS] (top: 10..54, x: 30..190)
-    for mut color_volver in q_boton_volver.iter_mut() {
-        let en_y_sup = pos_cursor.y >= 10.0 && pos_cursor.y <= 54.0;
-        let en_x_sup = pos_cursor.x >= 30.0 && pos_cursor.x <= 190.0;
-
-        if en_y_sup && en_x_sup {
-            if buttons.just_pressed(MouseButton::Left) {
-                *color_volver = BackgroundColor(Color::srgb(0.85, 0.40, 0.20));
-                commands.spawn(PeticionSalirChip);
-                return;
-            } else {
-                *color_volver = BackgroundColor(Color::srgb(0.80, 0.32, 0.32));
-            }
-        } else {
-            *color_volver = BackgroundColor(Color::srgb(0.65, 0.25, 0.25));
-        }
-    }
-
-    // 2. Comprobar clic en los botones de la barra inferior de Chips
-    let alto_ventana = window.height();
-    let dentro_franja_y = pos_cursor.y >= (alto_ventana - 56.0) 
-        && pos_cursor.y <= (alto_ventana - 10.0);
-
-    let centro_cam = q_camera
-        .single()
-        .map(|t| t.translation.truncate())
-        .unwrap_or(Vec2::ZERO);
-
-    for (btn_chip, mut color_fondo) in q_botones_inf.iter_mut() {
-        let dentro_x = pos_cursor.x >= btn_chip.x_min 
-            && pos_cursor.x <= btn_chip.x_max;
-
-        if dentro_franja_y && dentro_x {
-            if buttons.just_pressed(MouseButton::Left) {
-                *color_fondo = BackgroundColor(
-                    Color::srgb(0.15, 0.65, 0.35)
-                );
-                if let Some(datos) = 
-                    leer_datos_chip_desde_chp(&btn_chip.archivo_chp) 
-                {
-                    let cuadricula = 50.0;
-                    let pos_snap = Vec2::new(
-                        (centro_cam.x / cuadricula).round() * cuadricula,
-                        (centro_cam.y / cuadricula).round() * cuadricula,
-                    );
-                    crear_chip_personalizado(
-                        &mut commands,
-                        pos_snap,
-                        datos,
-                        &config,
-                    );
-                }
-            } else {
-                *color_fondo = BackgroundColor(
-                    Color::srgb(0.28, 0.46, 0.68)
-                );
-            }
-        } else {
-            *color_fondo = BackgroundColor(
-                Color::srgb(0.20, 0.34, 0.50)
-            );
-        }
-    }
 }

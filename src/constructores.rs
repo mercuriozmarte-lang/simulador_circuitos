@@ -4,15 +4,17 @@
 
 // --- Bloque 1: Importaciones ---
 use bevy::prelude::*;
+use bevy::render::mesh::{Indices, PrimitiveTopology};
+use bevy::asset::RenderAssetUsages;
 use crate::componentes::*;
 use crate::configuracion::ConfigApp;
 
-// --- Bloque 2: Constructores de Conectores ---
+// --- Bloque 2: Funciones Auxiliares para Conectores y Etiquetas ---
 pub fn bundle_conector(
     pos: Vec3,
     tipo: TipoConector,
     config: &ConfigApp,
-) -> (Sprite, Transform, TipoConector, ValorSeñal) {
+) -> impl Bundle {
     (
         Sprite {
             color: config.col_con_hueco,
@@ -25,29 +27,25 @@ pub fn bundle_conector(
     )
 }
 
-pub fn bundle_hueco(
-    config: &ConfigApp
-) -> (Sprite, Transform, CentroHueco) {
-    // Cuadrado interior oscuro que hace que el conector se vea "hueco"
+pub fn bundle_hueco(config: &ConfigApp) -> impl Bundle {
+    let tam_int = config.tam_conector - Vec2::splat(4.0);
     (
         Sprite {
-            color: Color::srgb(0.1, 0.1, 0.1),
-            custom_size: Some(
-                config.tam_conector - Vec2::splat(4.0)
-            ),
+            color: Color::srgb(0.12, 0.12, 0.15),
+            custom_size: Some(tam_int),
             ..default()
         },
-        Transform::from_xyz(0.0, 0.0, 0.1),
+        Transform::from_xyz(0.0, 0.0, 0.05),
         CentroHueco,
     )
 }
 
+// Calcula el ancho del rectángulo negro según la longitud del texto
+pub fn ancho_caja_etiqueta(texto: &str) -> f32 {
+    (texto.len() as f32 * 9.5 + 14.0).max(28.0)
+}
 
-// Bloque: Bloque 3: Creador de Puertas Lógicas Vectoriales
-use bevy::render::mesh::{Indices, PrimitiveTopology};
-use bevy::asset::RenderAssetUsages;
-
-// Convierte un polígono convexo o en abanico en una malla 2D de triángulos
+// --- Bloque 3: Geometría Vectorial para Puertas Lógicas ---
 fn crear_malla_poligono(
     centro: Vec2, 
     puntos: &[Vec2]
@@ -77,7 +75,6 @@ fn crear_malla_poligono(
     mesh
 }
 
-// Genera los puntos del contorno de una puerta AND / NAND (forma en D)
 fn puntos_forma_and(
     x_izq: f32,
     x_rect: f32,
@@ -99,7 +96,6 @@ fn puntos_forma_and(
     pts
 }
 
-// Genera los puntos del contorno curvo de una puerta OR / NOR / XOR / XNOR
 fn puntos_forma_or(
     x_izq: f32,
     x_punta: f32,
@@ -110,7 +106,6 @@ fn puntos_forma_or(
     let pasos = 16;
     let ancho = x_punta - x_izq;
 
-    // 1. Curva inferior (desde la esquina inferior izquierda hasta la punta derecha)
     for i in 0..=pasos {
         let t = i as f32 / pasos as f32;
         let x = x_izq + t * ancho;
@@ -118,7 +113,6 @@ fn puntos_forma_or(
         pts.push(Vec2::new(x, y));
     }
 
-    // 2. Curva superior (desde la punta derecha hasta la esquina superior izquierda)
     for i in 1..=pasos {
         let t = i as f32 / pasos as f32;
         let u = 1.0 - t;
@@ -127,7 +121,6 @@ fn puntos_forma_or(
         pts.push(Vec2::new(x, y));
     }
 
-    // 3. Arco cóncavo trasero (de arriba a abajo por el lado izquierdo)
     for i in 1..pasos {
         let t = i as f32 / pasos as f32;
         let y = alto_medio - t * (2.0 * alto_medio);
@@ -139,7 +132,6 @@ fn puntos_forma_or(
     pts
 }
 
-// Genera una cinta curva para el arco extra de las puertas XOR y XNOR
 fn crear_malla_arco_xor(
     x_base: f32,
     alto_medio: f32,
@@ -180,8 +172,7 @@ fn crear_malla_arco_xor(
     mesh
 }
 
-
-// (función crear_puerta)
+// --- Bloque 4: Creador de Puertas Lógicas Vectoriales ---
 pub fn crear_puerta(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
@@ -190,7 +181,6 @@ pub fn crear_puerta(
     tipo_puerta: TipoPuerta,
     config: &ConfigApp,
 ) -> (Option<Entity>, Vec<Entity>) {
-    // Texto identificador de la puerta
     let texto = match tipo_puerta {
         TipoPuerta::And => "AND",
         TipoPuerta::Or => "OR",
@@ -221,7 +211,6 @@ pub fn crear_puerta(
     let mut ent_salida = None;
     let mut entradas = Vec::new();
 
-    // Posición X de los conectores en los extremos (-50 y +50)
     let x_con_in = -config.tam_puerta.x / 2.0;
     let x_con_out = config.tam_puerta.x / 2.0;
 
@@ -231,7 +220,6 @@ pub fn crear_puerta(
         NodoLogico { tipo: tipo_puerta },
     ))
     .with_children(|padre| {
-        // 1. Dibujamos las líneas de las patillas usando config.col_patilla
         if tipo_puerta == TipoPuerta::Not {
             padre.spawn((
                 Sprite {
@@ -242,7 +230,6 @@ pub fn crear_puerta(
                 Transform::from_xyz(-35.0, 0.0, 0.02),
             ));
         } else {
-            // Patilla superior (Y = +15.0)
             padre.spawn((
                 Sprite {
                     color: col_borde,
@@ -251,7 +238,6 @@ pub fn crear_puerta(
                 },
                 Transform::from_xyz(-34.0, 15.0, 0.02),
             ));
-            // Patilla inferior (Y = -15.0)
             padre.spawn((
                 Sprite {
                     color: col_borde,
@@ -262,7 +248,6 @@ pub fn crear_puerta(
             ));
         }
 
-        // Patilla de salida derecha (Y = 0.0)
         padre.spawn((
             Sprite {
                 color: col_borde,
@@ -272,7 +257,6 @@ pub fn crear_puerta(
             Transform::from_xyz(35.0, 0.0, 0.02),
         ));
 
-        // 2. Cuerpo vectorial según la familia de puerta
         match tipo_puerta {
             TipoPuerta::Not => {
                 let pts_ext = [
@@ -370,7 +354,6 @@ pub fn crear_puerta(
             _ => {}
         }
 
-        // 3. Si la puerta es negada (NOT, NAND, NOR, XNOR), añadimos el circulito inversor
         if es_negada {
             let x_burbuja = if tipo_puerta == TipoPuerta::Not {
                 23.0
@@ -389,7 +372,6 @@ pub fn crear_puerta(
             ));
         }
 
-        // 4. Etiqueta de texto en el centro de la puerta
         if tipo_puerta != TipoPuerta::Not {
             let x_txt = if es_xor { 1.0 } else { -2.0 };
             padre.spawn((
@@ -403,7 +385,6 @@ pub fn crear_puerta(
             ));
         }
 
-        // 5. Conectores interactivos de Entrada y Salida
         if tipo_puerta == TipoPuerta::Not {
             let e_in = padre.spawn((
                 bundle_conector(
@@ -463,10 +444,7 @@ pub fn crear_puerta(
     (ent_salida, entradas)
 }
 
-// ==========================================
-// Fichero: src/constructores.rs
-// Bloque: Bloque 4: Creador de Interruptores
-// ==========================================
+// --- Bloque 5: Creador de Interruptores (con Etiqueta Negra y Letras Verdes) ---
 pub fn crear_interruptor(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
@@ -484,6 +462,12 @@ pub fn crear_interruptor(
 
     let mut ent_salida = None;
     let texto_etq = etiqueta.to_string();
+    let vis_caja = if texto_etq.is_empty() {
+        Visibility::Hidden
+    } else {
+        Visibility::Inherited
+    };
+    let ancho_caja = ancho_caja_etiqueta(&texto_etq);
 
     commands.spawn((
         Mesh2d(meshes.add(Triangle2d::new(
@@ -499,15 +483,27 @@ pub fn crear_interruptor(
         EtiquetaNodo(texto_etq.clone()),
     ))
     .with_children(|padre| {
-        // Etiqueta con el nombre del pin encima del interruptor (tecla N para editar)
+        // Rectángulo negro detrás del texto para destacar sobre las barras y fondos claros
+        padre.spawn((
+            Sprite {
+                color: config.col_etiqueta_fondo,
+                custom_size: Some(Vec2::new(ancho_caja, 20.0)),
+                ..default()
+            },
+            Transform::from_xyz(0.0, 28.0, 0.25),
+            vis_caja,
+            FondoEtiquetaNodo,
+        ));
+
+        // Texto en verde claro encima del rectángulo negro
         padre.spawn((
             Text2d::new(texto_etq),
             TextFont {
                 font_size: bevy::text::FontSize::Px(13.0),
                 ..default()
             },
-            TextColor(config.col_patilla),
-            Transform::from_xyz(0.0, 28.0, 0.3),
+            TextColor(config.col_etiqueta_texto),
+            Transform::from_xyz(0.0, 28.0, 0.30),
             TextoEtiquetaNodo,
         ));
 
@@ -540,10 +536,7 @@ pub fn crear_interruptor(
     (ent_salida, Vec::new())
 }
 
-// ==========================================
-// Fichero: src/constructores.rs
-// Bloque: Bloque 5: Creador de LEDs
-// ==========================================
+// --- Bloque 6: Creador de LEDs (con Etiqueta Negra y Letras Verdes) ---
 pub fn crear_led(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
@@ -554,6 +547,12 @@ pub fn crear_led(
 ) -> (Option<Entity>, Vec<Entity>) {
     let mut entradas = Vec::new();
     let texto_etq = etiqueta.to_string();
+    let vis_caja = if texto_etq.is_empty() {
+        Visibility::Hidden
+    } else {
+        Visibility::Inherited
+    };
+    let ancho_caja = ancho_caja_etiqueta(&texto_etq);
 
     commands.spawn((
         Mesh2d(meshes.add(Triangle2d::new(
@@ -569,15 +568,27 @@ pub fn crear_led(
         EtiquetaNodo(texto_etq.clone()),
     ))
     .with_children(|padre| {
-        // Etiqueta con el nombre del pin encima del LED (tecla N para editar)
+        // Rectángulo negro detrás del texto para destacar sobre las barras y fondos claros
+        padre.spawn((
+            Sprite {
+                color: config.col_etiqueta_fondo,
+                custom_size: Some(Vec2::new(ancho_caja, 20.0)),
+                ..default()
+            },
+            Transform::from_xyz(0.0, 28.0, 0.25),
+            vis_caja,
+            FondoEtiquetaNodo,
+        ));
+
+        // Texto en verde claro encima del rectángulo negro
         padre.spawn((
             Text2d::new(texto_etq),
             TextFont {
                 font_size: bevy::text::FontSize::Px(13.0),
                 ..default()
             },
-            TextColor(config.col_patilla),
-            Transform::from_xyz(0.0, 28.0, 0.3),
+            TextColor(config.col_etiqueta_texto),
+            Transform::from_xyz(0.0, 28.0, 0.30),
             TextoEtiquetaNodo,
         ));
 
@@ -611,9 +622,7 @@ pub fn crear_led(
     (None, entradas)
 }
 
-
-
-// --- Bloque 6: Creador de Relojes (Clock) ---
+// --- Bloque 7: Creador de Relojes (Clock) ---
 pub fn crear_reloj(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
@@ -622,71 +631,53 @@ pub fn crear_reloj(
     indice_frec_inicial: usize,
     config: &ConfigApp,
 ) -> (Option<Entity>, Vec<Entity>) {
-    // Malla triangular apuntando a la derecha
-    let malla_triangulo = meshes.add(Triangle2d::new(
-        Vec2::new(0.0, 15.0),
-        Vec2::new(0.0, -15.0),
-        Vec2::new(18.0, 0.0),
-    ));
-    let mat_cuerpo = materials.add(config.col_puerta);
-    let etiquetas_frec = ["OFF", "1Hz", "2Hz", "5Hz", "10Hz"];
-    let idx = indice_frec_inicial % etiquetas_frec.len();
+    let etiquetas = ["OFF", "1Hz", "2Hz", "5Hz", "10Hz"];
+    let idx = indice_frec_inicial.min(etiquetas.len() - 1);
+    let texto_inicial = etiquetas[idx];
 
     let mut ent_salida = None;
 
     commands.spawn((
+        Mesh2d(meshes.add(Triangle2d::new(
+            Vec2::new(-10.0, 20.0),
+            Vec2::new(-10.0, -20.0),
+            Vec2::new(22.0, 0.0),
+        ))),
+        MeshMaterial2d(materials.add(config.col_puerta)),
         Transform::from_xyz(pos.x, pos.y, 1.0),
-        Visibility::default(),
-        NodoLogico { tipo: TipoPuerta::Reloj },
+        NodoLogico { 
+            tipo: TipoPuerta::Reloj 
+        },
     ))
     .with_children(|padre| {
-        // 1. Recuadro izquierdo: Botón de frecuencia
         padre.spawn((
             Sprite {
                 color: config.col_estado_0,
-                custom_size: Some(Vec2::new(34.0, 26.0)),
+                custom_size: Some(Vec2::new(34.0, 24.0)),
                 ..default()
             },
-            Transform::from_xyz(-32.0, 0.0, 0.1),
+            Transform::from_xyz(-27.0, 0.0, 0.1),
             ControlReloj {
                 estado: false,
                 indice_frec: idx,
                 acumulador: 0.0,
             },
         ))
-        .with_children(|ctrl| {
-            ctrl.spawn((
-                Text2d::new(etiquetas_frec[idx]),
+        .with_children(|cuadro| {
+            cuadro.spawn((
+                Text2d::new(texto_inicial),
                 TextFont {
-                    font_size: bevy::text::FontSize::Px(12.0),
+                    font_size: bevy::text::FontSize::Px(11.0),
                     ..default()
                 },
                 TextColor(Color::WHITE),
-                Transform::from_xyz(0.0, 0.0, 0.1),
+                Transform::from_xyz(0.0, 0.0, 0.2),
                 TextoReloj,
             ));
         });
 
-        // 2. Cuadrado central: Cuerpo para arrastrar el reloj
-        padre.spawn((
-            Sprite {
-                color: config.col_puerta,
-                custom_size: Some(Vec2::new(30.0, 30.0)),
-                ..default()
-            },
-            Transform::from_xyz(0.0, 0.0, 0.0),
-        ));
-
-        // 3. Triángulo derecho: Dirección hacia la salida
-        padre.spawn((
-            Mesh2d(malla_triangulo),
-            MeshMaterial2d(mat_cuerpo),
-            Transform::from_xyz(15.0, 0.0, 0.0),
-        ));
-
-        // 4. Conector de Salida en la punta del triángulo
         let e_out = padre.spawn(bundle_conector(
-            Vec3::new(33.0, 0.0, 0.2),
+            Vec3::new(22.0, 0.0, 0.1),
             TipoConector::Salida,
             config,
         ))
@@ -700,109 +691,90 @@ pub fn crear_reloj(
     (ent_salida, Vec::new())
 }
 
-// --- Bloque 7: Creador de Displays de 7 Segmentos ---
+// --- Bloque 8: Creador de Displays de 7 Segmentos ---
 pub fn crear_display(
     commands: &mut Commands,
     pos: Vec2,
-    modo_4_bits: bool,
+    es_4_bits: bool,
     config: &ConfigApp,
 ) -> (Option<Entity>, Vec<Entity>) {
-    let tipo = if modo_4_bits {
+    let tipo = if es_4_bits {
         TipoPuerta::Display4Bits
     } else {
         TipoPuerta::Display7Seg
     };
 
-    let tam_cuerpo = Vec2::new(90.0, 130.0);
-    let tam_pantalla = Vec2::new(56.0, 106.0);
+    let alto_caja = if es_4_bits { 116.0 } else { 150.0 };
+    let ancho_caja = 74.0;
     let mut entradas = Vec::new();
 
     commands.spawn((
         Sprite {
-            color: config.col_puerta,
-            custom_size: Some(tam_cuerpo),
+            color: Color::srgb(0.10, 0.10, 0.12),
+            custom_size: Some(Vec2::new(ancho_caja, alto_caja)),
             ..default()
         },
         Transform::from_xyz(pos.x, pos.y, 1.0),
         NodoLogico { tipo },
     ))
     .with_children(|padre| {
-        // 1. Pantalla interior negra donde brillan los segmentos
-        padre.spawn((
-            Sprite {
-                color: Color::srgb(0.06, 0.06, 0.08),
-                custom_size: Some(tam_pantalla),
-                ..default()
-            },
-            Transform::from_xyz(8.0, 0.0, 0.05),
-        ));
-
-        // 2. Conectores de Entrada en el borde izquierdo + etiquetas
-        let num_entradas = if modo_4_bits { 4 } else { 7 };
-        let etiquetas_4b = ["8", "4", "2", "1"];
-        let etiquetas_7s = ["A", "B", "C", "D", "E", "F", "G"];
-
-        for i in 0..num_entradas {
-            let y = if modo_4_bits {
-                36.0 - (i as f32 * 24.0)
-            } else {
-                54.0 - (i as f32 * 18.0)
-            };
-
-            let e_in = padre.spawn((
-                bundle_conector(
-                    Vec3::new(-tam_cuerpo.x / 2.0, y, 0.1),
-                    TipoConector::Entrada,
-                    config,
-                ),
-                PinEntrada(i),
-            ))
-            .with_children(|con| {
-                con.spawn(bundle_hueco(config));
-            })
-            .id();
-            entradas.push(e_in);
-
-            // Pequeña etiqueta junto al pin para saber qué bit o segmento es
-            let txt_pin = if modo_4_bits {
-                etiquetas_4b[i]
-            } else {
-                etiquetas_7s[i]
-            };
-
-            padre.spawn((
-                Text2d::new(txt_pin),
-                TextFont {
-                    font_size: bevy::text::FontSize::Px(11.0),
-                    ..default()
-                },
-                TextColor(Color::WHITE),
-                Transform::from_xyz(-tam_cuerpo.x / 2.0 + 14.0, y, 0.2),
-            ));
+        if es_4_bits {
+            let ys = [36.0, 12.0, -12.0, -36.0];
+            for (i, &y) in ys.iter().enumerate() {
+                let e_in = padre.spawn((
+                    bundle_conector(
+                        Vec3::new(-ancho_caja / 2.0, y, 0.1),
+                        TipoConector::Entrada,
+                        config,
+                    ),
+                    PinEntrada(i),
+                ))
+                .with_children(|con| {
+                    con.spawn(bundle_hueco(config));
+                })
+                .id();
+                entradas.push(e_in);
+            }
+        } else {
+            let ys = [60.0, 40.0, 20.0, 0.0, -20.0, -40.0, -60.0];
+            for (i, &y) in ys.iter().enumerate() {
+                let e_in = padre.spawn((
+                    bundle_conector(
+                        Vec3::new(-ancho_caja / 2.0, y, 0.1),
+                        TipoConector::Entrada,
+                        config,
+                    ),
+                    PinEntrada(i),
+                ))
+                .with_children(|con| {
+                    con.spawn(bundle_hueco(config));
+                })
+                .id();
+                entradas.push(e_in);
+            }
         }
 
-        // 3. Los 7 segmentos geométricos (A, B, C, D, E, F, G)
-        let cx = 8.0;
-        let geom_segmentos: [(f32, f32, f32, f32); 7] = [
-            (cx,        38.0, 28.0,  6.0), // 0: A (Arriba)
-            (cx + 16.0, 19.0,  6.0, 30.0), // 1: B (Arriba-Derecha)
-            (cx + 16.0,-19.0,  6.0, 30.0), // 2: C (Abajo-Derecha)
-            (cx,       -38.0, 28.0,  6.0), // 3: D (Abajo)
-            (cx - 16.0,-19.0,  6.0, 30.0), // 4: E (Abajo-Izquierda)
-            (cx - 16.0, 19.0,  6.0, 30.0), // 5: F (Arriba-Izquierda)
-            (cx,         0.0, 28.0,  6.0), // 6: G (Centro)
+        let col_apagado = Color::srgb(0.18, 0.18, 0.20);
+        let x_off = 5.0;
+        let defs_seg: [(usize, Vec2, Vec2); 7] = [
+            (0, Vec2::new(x_off, 38.0),        Vec2::new(28.0, 6.0)),
+            (1, Vec2::new(x_off + 16.0, 19.0), Vec2::new(6.0, 30.0)),
+            (2, Vec2::new(x_off + 16.0, -19.0),Vec2::new(6.0, 30.0)),
+            (3, Vec2::new(x_off, -38.0),       Vec2::new(28.0, 6.0)),
+            (4, Vec2::new(x_off - 16.0, -19.0),Vec2::new(6.0, 30.0)),
+            (5, Vec2::new(x_off - 16.0, 19.0), Vec2::new(6.0, 30.0)),
+            (6, Vec2::new(x_off, 0.0),         Vec2::new(28.0, 6.0)),
         ];
 
-        let col_apagado = Color::srgb(0.18, 0.18, 0.20);
-        for (idx, (sx, sy, sw, sh)) in geom_segmentos.iter().enumerate() {
+        for (idx, pos_seg, tam_seg) in defs_seg.iter() {
             padre.spawn((
                 Sprite {
                     color: col_apagado,
-                    custom_size: Some(Vec2::new(*sw, *sh)),
+                    custom_size: Some(*tam_seg),
                     ..default()
                 },
-                Transform::from_xyz(*sx, *sy, 0.15),
-                SegmentoDisplay(idx),
+                Transform::from_xyz(pos_seg.x, pos_seg.y, 0.15),
+                SegmentoDisplay(*idx),
             ));
         }
     });
@@ -810,63 +782,56 @@ pub fn crear_display(
     (None, entradas)
 }
 
-// --- Bloque 8: Creador de Barras Laterales para Chip ---
+// --- Bloque 9: Creador de Barras Laterales para Pines de Chip ---
 pub fn crear_barras_chip(commands: &mut Commands) {
-    let x_izq = -500.0;
-    let x_der = 500.0;
-    let ancho_barra = 16.0;
-    let alto_barra = 600.0;
-    let col_barra = Color::srgb(0.22, 0.25, 0.30);
+    let ancho = 16.0;
+    let alto = 560.0;
+    let x_barra = 500.0;
 
-    // 1. Barra Izquierda (donde se pegan los Interruptores de Entrada)
     commands.spawn((
         Sprite {
-            color: col_barra,
-            custom_size: Some(Vec2::new(ancho_barra, alto_barra)),
+            color: Color::srgb(0.22, 0.28, 0.38),
+            custom_size: Some(Vec2::new(ancho, alto)),
             ..default()
         },
-        Transform::from_xyz(x_izq, 0.0, 0.5),
+        Transform::from_xyz(-x_barra, 0.0, 0.5),
         BarraChip::IzquierdaEntradas,
     ))
     .with_children(|padre| {
         padre.spawn((
             Text2d::new("IN CHIP"),
             TextFont {
-                font_size: bevy::text::FontSize::Px(13.0),
+                font_size: bevy::text::FontSize::Px(14.0),
                 ..default()
             },
-            TextColor(Color::srgb(0.7, 0.8, 1.0)),
-            Transform::from_xyz(0.0, alto_barra / 2.0 + 16.0, 0.1),
+            TextColor(Color::srgb(0.5, 0.7, 1.0)),
+            Transform::from_xyz(0.0, alto / 2.0 + 18.0, 0.1),
         ));
     });
 
-    // 2. Barra Derecha (donde se pegan los LEDs de Salida)
     commands.spawn((
         Sprite {
-            color: col_barra,
-            custom_size: Some(Vec2::new(ancho_barra, alto_barra)),
+            color: Color::srgb(0.22, 0.38, 0.28),
+            custom_size: Some(Vec2::new(ancho, alto)),
             ..default()
         },
-        Transform::from_xyz(x_der, 0.0, 0.5),
+        Transform::from_xyz(x_barra, 0.0, 0.5),
         BarraChip::DerechaSalidas,
     ))
     .with_children(|padre| {
         padre.spawn((
             Text2d::new("OUT CHIP"),
             TextFont {
-                font_size: bevy::text::FontSize::Px(13.0),
+                font_size: bevy::text::FontSize::Px(14.0),
                 ..default()
             },
-            TextColor(Color::srgb(0.7, 0.8, 1.0)),
-            Transform::from_xyz(0.0, alto_barra / 2.0 + 16.0, 0.1),
+            TextColor(Color::srgb(0.5, 1.0, 0.7)),
+            Transform::from_xyz(0.0, alto / 2.0 + 18.0, 0.1),
         ));
     });
 }
 
-// ==========================================
-// Fichero: src/constructores.rs
-// Bloque: Bloque 9: Creador de Chips Personalizados
-// ==========================================
+// --- Bloque 10: Creador de Chips Personalizados (con Etiquetas de Pines) ---
 pub fn crear_chip_personalizado(
     commands: &mut Commands,
     pos: Vec2,
@@ -877,7 +842,6 @@ pub fn crear_chip_personalizado(
     let num_out = datos.pines_salida.len();
     let max_pines = num_in.max(num_out).max(1);
 
-    // Calculamos el ancho extra necesario si los pines tienen etiquetas de texto
     let max_len_in = datos
         .nombres_entrada
         .iter()
@@ -890,14 +854,13 @@ pub fn crear_chip_personalizado(
         .map(|s| s.len())
         .max()
         .unwrap_or(0);
-    let margen_pines = ((max_len_in + max_len_out) as f32 * 7.5).max(24.0);
+    let margen_pines = ((max_len_in + max_len_out) as f32 * 8.5).max(28.0);
 
     let ancho_texto = (datos.nombre.len() as f32 * 11.0).max(76.0);
-    let ancho_cuerpo = ancho_texto + margen_pines + 36.0;
+    let ancho_cuerpo = ancho_texto + margen_pines + 40.0;
     let separacion_pines = 24.0;
     let alto_cuerpo = (max_pines as f32 * separacion_pines + 28.0).max(62.0);
 
-    // Inicializamos la memoria de estados de cada nodo interno del chip
     let mut estados_nodos = Vec::with_capacity(datos.nodos.len());
     for n in datos.nodos.iter() {
         let num_salidas = if let Some(sub) = &n.sub_chip {
@@ -929,7 +892,6 @@ pub fn crear_chip_personalizado(
         },
     ))
     .with_children(|padre| {
-        // 1. Texto con el nombre del Chip en el centro
         padre.spawn((
             Text2d::new(nombre_mostrar),
             TextFont {
@@ -940,7 +902,6 @@ pub fn crear_chip_personalizado(
             Transform::from_xyz(0.0, 9.0, 0.2),
         ));
 
-        // 2. Pequeño botón [VER] en la parte baja del Chip
         let y_btn = -alto_cuerpo / 2.0 + 12.0;
         padre.spawn((
             Sprite {
@@ -963,7 +924,6 @@ pub fn crear_chip_personalizado(
             ));
         });
 
-        // 3. Conectores de Entrada y sus etiquetas en el lado izquierdo
         let inicio_in_y = 
             ((num_in.saturating_sub(1)) as f32 * separacion_pines) / 2.0;
         for i in 0..num_in {
@@ -982,17 +942,30 @@ pub fn crear_chip_personalizado(
             .id();
             entradas_ent.push(e_in);
 
-            // Si el pin de entrada tiene nombre, lo escribimos junto a la patilla
+            // Etiqueta de pin de entrada en rectángulo negro con letras verde claro
             if let Some(etq) = nombres_in.get(i) {
                 if !etq.is_empty() {
-                    let offset_x = 12.0 + (etq.len() as f32 * 3.5);
+                    let w_etq = (etq.len() as f32 * 7.5 + 8.0).max(20.0);
+                    let offset_x = 10.0 + w_etq / 2.0;
+                    padre.spawn((
+                        Sprite {
+                            color: config.col_etiqueta_fondo,
+                            custom_size: Some(Vec2::new(w_etq, 15.0)),
+                            ..default()
+                        },
+                        Transform::from_xyz(
+                            -ancho_cuerpo / 2.0 + offset_x,
+                            y,
+                            0.22,
+                        ),
+                    ));
                     padre.spawn((
                         Text2d::new(etq.clone()),
                         TextFont {
                             font_size: bevy::text::FontSize::Px(11.0),
                             ..default()
                         },
-                        TextColor(Color::srgb(0.82, 0.92, 1.0)),
+                        TextColor(config.col_etiqueta_texto),
                         Transform::from_xyz(
                             -ancho_cuerpo / 2.0 + offset_x,
                             y,
@@ -1003,7 +976,6 @@ pub fn crear_chip_personalizado(
             }
         }
 
-        // 4. Conectores de Salida y sus etiquetas en el lado derecho
         let inicio_out_y = 
             ((num_out.saturating_sub(1)) as f32 * separacion_pines) / 2.0;
         for i in 0..num_out {
@@ -1022,17 +994,30 @@ pub fn crear_chip_personalizado(
             .id();
             salidas_ent.push(e_out);
 
-            // Si el pin de salida tiene nombre, lo escribimos junto a la patilla
+            // Etiqueta de pin de salida en rectángulo negro con letras verde claro
             if let Some(etq) = nombres_out.get(i) {
                 if !etq.is_empty() {
-                    let offset_x = 12.0 + (etq.len() as f32 * 3.5);
+                    let w_etq = (etq.len() as f32 * 7.5 + 8.0).max(20.0);
+                    let offset_x = 10.0 + w_etq / 2.0;
+                    padre.spawn((
+                        Sprite {
+                            color: config.col_etiqueta_fondo,
+                            custom_size: Some(Vec2::new(w_etq, 15.0)),
+                            ..default()
+                        },
+                        Transform::from_xyz(
+                            ancho_cuerpo / 2.0 - offset_x,
+                            y,
+                            0.22,
+                        ),
+                    ));
                     padre.spawn((
                         Text2d::new(etq.clone()),
                         TextFont {
                             font_size: bevy::text::FontSize::Px(11.0),
                             ..default()
                         },
-                        TextColor(Color::srgb(0.82, 0.92, 1.0)),
+                        TextColor(config.col_etiqueta_texto),
                         Transform::from_xyz(
                             ancho_cuerpo / 2.0 - offset_x,
                             y,
