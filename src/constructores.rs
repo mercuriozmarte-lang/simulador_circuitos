@@ -9,7 +9,10 @@ use bevy::asset::RenderAssetUsages;
 use crate::componentes::*;
 use crate::configuracion::ConfigApp;
 
-// --- Bloque 2: Funciones Auxiliares para Conectores y Etiquetas ---
+// ==========================================
+// Fichero: src/constructores.rs
+// Bloque: Bloque 2: Funciones Auxiliares para Conectores y Etiquetas
+// ==========================================
 pub fn bundle_conector(
     pos: Vec3,
     tipo: TipoConector,
@@ -38,6 +41,56 @@ pub fn bundle_hueco(config: &ConfigApp) -> impl Bundle {
         Transform::from_xyz(0.0, 0.0, 0.05),
         CentroHueco,
     )
+}
+
+// Añade el centro hueco y, si es un conector de SALIDA, dibuja un marco negro interior
+// para diferenciar visualmente las salidas de las entradas.
+pub fn poblar_interior_conector(
+    con: &mut ChildSpawnerCommands,
+    tipo: TipoConector,
+    config: &ConfigApp,
+) {
+    con.spawn(bundle_hueco(config));
+
+    if tipo == TipoConector::Salida {
+        let tam_marco = config.tam_conector - Vec2::splat(2.0);
+        let g = 1.5;
+        let offset = (tam_marco.x - g) / 2.0;
+
+        // 4 barritas negras formando un marco interior exclusivo en los conectores de Salida
+        con.spawn((
+            Sprite {
+                color: Color::BLACK,
+                custom_size: Some(Vec2::new(tam_marco.x, g)),
+                ..default()
+            },
+            Transform::from_xyz(0.0, offset, 0.08),
+        ));
+        con.spawn((
+            Sprite {
+                color: Color::BLACK,
+                custom_size: Some(Vec2::new(tam_marco.x, g)),
+                ..default()
+            },
+            Transform::from_xyz(0.0, -offset, 0.08),
+        ));
+        con.spawn((
+            Sprite {
+                color: Color::BLACK,
+                custom_size: Some(Vec2::new(g, tam_marco.y)),
+                ..default()
+            },
+            Transform::from_xyz(-offset, 0.0, 0.08),
+        ));
+        con.spawn((
+            Sprite {
+                color: Color::BLACK,
+                custom_size: Some(Vec2::new(g, tam_marco.y)),
+                ..default()
+            },
+            Transform::from_xyz(offset, 0.0, 0.08),
+        ));
+    }
 }
 
 // Calcula el ancho del rectángulo negro según la longitud del texto
@@ -172,7 +225,10 @@ fn crear_malla_arco_xor(
     mesh
 }
 
-// --- Bloque 4: Creador de Puertas Lógicas Vectoriales ---
+// ==========================================
+// Fichero: src/constructores.rs
+// Bloque: Bloque 4: Creador de Puertas Lógicas Vectoriales
+// ==========================================
 pub fn crear_puerta(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
@@ -395,7 +451,7 @@ pub fn crear_puerta(
                 PinEntrada(0),
             ))
             .with_children(|con| {
-                con.spawn(bundle_hueco(config));
+                poblar_interior_conector(con, TipoConector::Entrada, config);
             })
             .id();
             entradas.push(e_in);
@@ -409,7 +465,7 @@ pub fn crear_puerta(
                 PinEntrada(0),
             ))
             .with_children(|con| {
-                con.spawn(bundle_hueco(config));
+                poblar_interior_conector(con, TipoConector::Entrada, config);
             })
             .id();
             entradas.push(e_in1);
@@ -423,7 +479,7 @@ pub fn crear_puerta(
                 PinEntrada(1),
             ))
             .with_children(|con| {
-                con.spawn(bundle_hueco(config));
+                poblar_interior_conector(con, TipoConector::Entrada, config);
             })
             .id();
             entradas.push(e_in2);
@@ -435,7 +491,7 @@ pub fn crear_puerta(
             config,
         ))
         .with_children(|con| {
-            con.spawn(bundle_hueco(config));
+            poblar_interior_conector(con, TipoConector::Salida, config);
         })
         .id();
         ent_salida = Some(e_out);
@@ -444,11 +500,14 @@ pub fn crear_puerta(
     (ent_salida, entradas)
 }
 
-// --- Bloque 5: Creador de Interruptores (con Etiqueta Negra y Letras Verdes) ---
+// ==========================================
+// Fichero: src/constructores.rs
+// Bloque: Bloque 5: Creador de Interruptores (Compacto, Agarre Ancho y Nombre a la Izquierda)
+// ==========================================
 pub fn crear_interruptor(
     commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<ColorMaterial>>,
+    _meshes: &mut ResMut<Assets<Mesh>>,
+    _materials: &mut ResMut<Assets<ColorMaterial>>,
     pos: Vec2,
     estado_inicial: bool,
     etiqueta: &str,
@@ -469,13 +528,20 @@ pub fn crear_interruptor(
     };
     let ancho_caja = ancho_caja_etiqueta(&texto_etq);
 
+    // Cuerpo central de agarre más ancho (config.ancho_agarre_io) y compacto (config.alto_io)
+    let w_agarre = config.ancho_agarre_io;
+    let h_io = config.alto_io;
+    let x_boton = -(w_agarre / 2.0 + 11.0);
+    let x_salida = w_agarre / 2.0 + 6.0;
+    // Etiqueta situada a la IZQUIERDA del interruptor
+    let x_etiqueta = x_boton - 16.0 - ancho_caja / 2.0;
+
     commands.spawn((
-        Mesh2d(meshes.add(Triangle2d::new(
-            Vec2::new(-10.0, 20.0),
-            Vec2::new(-10.0, -20.0),
-            Vec2::new(22.0, 0.0),
-        ))),
-        MeshMaterial2d(materials.add(config.col_puerta)),
+        Sprite {
+            color: config.col_puerta,
+            custom_size: Some(Vec2::new(w_agarre, h_io)),
+            ..default()
+        },
         Transform::from_xyz(pos.x, pos.y, 1.0),
         NodoLogico { 
             tipo: TipoPuerta::Interruptor 
@@ -483,51 +549,51 @@ pub fn crear_interruptor(
         EtiquetaNodo(texto_etq.clone()),
     ))
     .with_children(|padre| {
-        // Rectángulo negro detrás del texto para destacar sobre las barras y fondos claros
+        // Rectángulo negro a la IZQUIERDA de la entrada
         padre.spawn((
             Sprite {
                 color: config.col_etiqueta_fondo,
-                custom_size: Some(Vec2::new(ancho_caja, 20.0)),
+                custom_size: Some(Vec2::new(ancho_caja, 18.0)),
                 ..default()
             },
-            Transform::from_xyz(0.0, 28.0, 0.25),
+            Transform::from_xyz(x_etiqueta, 0.0, 0.25),
             vis_caja,
             FondoEtiquetaNodo,
         ));
 
-        // Texto en verde claro encima del rectángulo negro
+        // Texto verde claro a la IZQUIERDA de la entrada
         padre.spawn((
             Text2d::new(texto_etq),
             TextFont {
-                font_size: bevy::text::FontSize::Px(13.0),
+                font_size: bevy::text::FontSize::Px(12.0),
                 ..default()
             },
             TextColor(config.col_etiqueta_texto),
-            Transform::from_xyz(0.0, 28.0, 0.30),
+            Transform::from_xyz(x_etiqueta, 0.0, 0.30),
             TextoEtiquetaNodo,
         ));
 
-        // Cuadrado izquierdo interactivo que cambia entre 0 y 1
+        // Botón interactivo (0 / 1) con altura compacta h_io
         padre.spawn((
             Sprite {
                 color: color_inicial,
-                custom_size: Some(Vec2::new(24.0, 24.0)),
+                custom_size: Some(Vec2::new(20.0, h_io)),
                 ..default()
             },
-            Transform::from_xyz(-24.0, 0.0, 0.1),
+            Transform::from_xyz(x_boton, 0.0, 0.1),
             BotonInterruptor { 
                 estado: estado_inicial 
             },
         ));
 
-        // Conector de Salida en la punta derecha del triángulo
+        // Conector de Salida (con marco negro interior) a la derecha del cuerpo de agarre
         let e_out = padre.spawn(bundle_conector(
-            Vec3::new(22.0, 0.0, 0.1),
+            Vec3::new(x_salida, 0.0, 0.1),
             TipoConector::Salida,
             config,
         ))
         .with_children(|con| {
-            con.spawn(bundle_hueco(config));
+            poblar_interior_conector(con, TipoConector::Salida, config);
         })
         .id();
         ent_salida = Some(e_out);
@@ -536,11 +602,14 @@ pub fn crear_interruptor(
     (ent_salida, Vec::new())
 }
 
-// --- Bloque 6: Creador de LEDs (con Etiqueta Negra y Letras Verdes) ---
+// ==========================================
+// Fichero: src/constructores.rs
+// Bloque: Bloque 6: Creador de LEDs (Compacto, Agarre Ancho y Nombre a la Derecha)
+// ==========================================
 pub fn crear_led(
     commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<ColorMaterial>>,
+    _meshes: &mut ResMut<Assets<Mesh>>,
+    _materials: &mut ResMut<Assets<ColorMaterial>>,
     pos: Vec2,
     etiqueta: &str,
     config: &ConfigApp,
@@ -554,13 +623,20 @@ pub fn crear_led(
     };
     let ancho_caja = ancho_caja_etiqueta(&texto_etq);
 
+    // Cuerpo central de agarre más ancho (config.ancho_agarre_io) y compacto (config.alto_io)
+    let w_agarre = config.ancho_agarre_io;
+    let h_io = config.alto_io;
+    let x_entrada = -(w_agarre / 2.0 + 6.0);
+    let x_led = w_agarre / 2.0 + 11.0;
+    // Etiqueta situada a la DERECHA de la salida (LED)
+    let x_etiqueta = x_led + 16.0 + ancho_caja / 2.0;
+
     commands.spawn((
-        Mesh2d(meshes.add(Triangle2d::new(
-            Vec2::new(-22.0, 0.0),
-            Vec2::new(10.0, 20.0),
-            Vec2::new(10.0, -20.0),
-        ))),
-        MeshMaterial2d(materials.add(config.col_puerta)),
+        Sprite {
+            color: config.col_puerta,
+            custom_size: Some(Vec2::new(w_agarre, h_io)),
+            ..default()
+        },
         Transform::from_xyz(pos.x, pos.y, 1.0),
         NodoLogico { 
             tipo: TipoPuerta::Led 
@@ -568,52 +644,52 @@ pub fn crear_led(
         EtiquetaNodo(texto_etq.clone()),
     ))
     .with_children(|padre| {
-        // Rectángulo negro detrás del texto para destacar sobre las barras y fondos claros
+        // Rectángulo negro a la DERECHA del LED
         padre.spawn((
             Sprite {
                 color: config.col_etiqueta_fondo,
-                custom_size: Some(Vec2::new(ancho_caja, 20.0)),
+                custom_size: Some(Vec2::new(ancho_caja, 18.0)),
                 ..default()
             },
-            Transform::from_xyz(0.0, 28.0, 0.25),
+            Transform::from_xyz(x_etiqueta, 0.0, 0.25),
             vis_caja,
             FondoEtiquetaNodo,
         ));
 
-        // Texto en verde claro encima del rectángulo negro
+        // Texto verde claro a la DERECHA del LED
         padre.spawn((
             Text2d::new(texto_etq),
             TextFont {
-                font_size: bevy::text::FontSize::Px(13.0),
+                font_size: bevy::text::FontSize::Px(12.0),
                 ..default()
             },
             TextColor(config.col_etiqueta_texto),
-            Transform::from_xyz(0.0, 28.0, 0.30),
+            Transform::from_xyz(x_etiqueta, 0.0, 0.30),
             TextoEtiquetaNodo,
         ));
 
-        // Cuadrado luminoso a la derecha
+        // Indicador luminoso a la derecha con altura compacta h_io
         padre.spawn((
             Sprite {
                 color: config.col_estado_0,
-                custom_size: Some(Vec2::new(24.0, 24.0)),
+                custom_size: Some(Vec2::new(20.0, h_io)),
                 ..default()
             },
-            Transform::from_xyz(24.0, 0.0, 0.1),
+            Transform::from_xyz(x_led, 0.0, 0.1),
             IndicadorLed,
         ));
 
-        // Conector de Entrada en la punta izquierda del triángulo
+        // Conector de Entrada a la izquierda del cuerpo de agarre
         let e_in = padre.spawn((
             bundle_conector(
-                Vec3::new(-22.0, 0.0, 0.1),
+                Vec3::new(x_entrada, 0.0, 0.1),
                 TipoConector::Entrada,
                 config,
             ),
             PinEntrada(0),
         ))
         .with_children(|con| {
-            con.spawn(bundle_hueco(config));
+            poblar_interior_conector(con, TipoConector::Entrada, config);
         })
         .id();
         entradas.push(e_in);
@@ -622,7 +698,10 @@ pub fn crear_led(
     (None, entradas)
 }
 
-// --- Bloque 7: Creador de Relojes (Clock) ---
+// ==========================================
+// Fichero: src/constructores.rs
+// Bloque: Bloque 7: Creador de Relojes (Clock)
+// ==========================================
 pub fn crear_reloj(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
@@ -682,7 +761,7 @@ pub fn crear_reloj(
             config,
         ))
         .with_children(|con| {
-            con.spawn(bundle_hueco(config));
+            poblar_interior_conector(con, TipoConector::Salida, config);
         })
         .id();
         ent_salida = Some(e_out);
@@ -855,7 +934,7 @@ pub fn crear_barras_chip(
 
 // ==========================================
 // Fichero: src/constructores.rs
-// Bloque: Bloque 10: Creador de Chips Personalizados (con Etiquetas de Pines)
+// Bloque: Bloque 10: Creador de Chips Personalizados (Pines Alineados al Paso)
 // ==========================================
 pub fn crear_chip_personalizado(
     commands: &mut Commands,
@@ -883,15 +962,16 @@ pub fn crear_chip_personalizado(
 
     let ancho_texto = (datos.nombre.len() as f32 * 11.0).max(76.0);
     let ancho_cuerpo = ancho_texto + margen_pines + 40.0;
-    let separacion_pines = 24.0;
-    let alto_cuerpo = (max_pines as f32 * separacion_pines + 28.0).max(62.0);
+    // Usamos config.sep_pines_chip (25px) y alineamos el primer pin a un múltiplo exacto
+    // para que todas las patillas coincidan con el snap de los Interruptores y LEDs.
+    let separacion_pines = config.sep_pines_chip;
+    let alto_cuerpo = (max_pines as f32 * separacion_pines + 30.0).max(64.0);
 
     let memoria = EstadoRedChip::nuevo_desde_datos(&datos);
 
     let nombre_mostrar = datos.nombre.clone();
     let nombres_in = datos.nombres_entrada.clone();
     let nombres_out = datos.nombres_salida.clone();
-    // Apuntamos siempre a la carpeta chips/
     let archivo_chp = format!("chips/{}.chp", datos.nombre.to_lowercase());
     let mut salidas_ent = Vec::new();
     let mut entradas_ent = Vec::new();
@@ -942,8 +1022,9 @@ pub fn crear_chip_personalizado(
             ));
         });
 
+        // Alineamos el Pin 0 superior a un múltiplo entero de separacion_pines
         let inicio_in_y = 
-            ((num_in.saturating_sub(1)) as f32 * separacion_pines) / 2.0;
+            ((num_in.saturating_sub(1) / 2) as f32) * separacion_pines;
         for i in 0..num_in {
             let y = inicio_in_y - (i as f32 * separacion_pines);
             let e_in = padre.spawn((
@@ -955,7 +1036,7 @@ pub fn crear_chip_personalizado(
                 PinEntrada(i),
             ))
             .with_children(|con| {
-                con.spawn(bundle_hueco(config));
+                poblar_interior_conector(con, TipoConector::Entrada, config);
             })
             .id();
             entradas_ent.push(e_in);
@@ -994,7 +1075,7 @@ pub fn crear_chip_personalizado(
         }
 
         let inicio_out_y = 
-            ((num_out.saturating_sub(1)) as f32 * separacion_pines) / 2.0;
+            ((num_out.saturating_sub(1) / 2) as f32) * separacion_pines;
         for i in 0..num_out {
             let y = inicio_out_y - (i as f32 * separacion_pines);
             let e_out = padre.spawn((
@@ -1006,7 +1087,7 @@ pub fn crear_chip_personalizado(
                 PinSalida(i),
             ))
             .with_children(|con| {
-                con.spawn(bundle_hueco(config));
+                poblar_interior_conector(con, TipoConector::Salida, config);
             })
             .id();
             salidas_ent.push(e_out);

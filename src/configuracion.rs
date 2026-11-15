@@ -15,6 +15,11 @@ pub struct ConfigApp {
     pub tam_puerta: Vec2,
     pub tam_conector: Vec2,
     pub grosor_cable: f32,
+    // Separación vertical entre patillas de un Chip (25.0 encaja con cuadrícula y snap de 5px)
+    pub sep_pines_chip: f32,
+    // Dimensiones del cuerpo de agarre de Interruptores y LEDs
+    pub ancho_agarre_io: f32,
+    pub alto_io: f32,
     
     // Radios de detección y pasos de ajuste (Snap)
     pub rad_clic_con: f32,
@@ -26,7 +31,6 @@ pub struct ConfigApp {
     // Paleta de colores del lienzo, barras y puertas
     pub col_fondo: Color,
     pub col_cuadricula: Color,
-    // NUEVO: Color gris claro configurable para las barras laterales de pines (IN / OUT CHIP)
     pub col_barra_io: Color,
     pub col_puerta: Color,
     pub col_patilla: Color,
@@ -52,26 +56,26 @@ impl Default for ConfigApp {
             tam_puerta: Vec2::new(100.0, 60.0),
             tam_conector: Vec2::new(12.0, 12.0),
             grosor_cable: 3.5,
+            // Paso entre pines de Chip: 25.0px (múltiplo exacto de paso_snap_io = 5.0)
+            sep_pines_chip: 25.0,
+            // Cuerpo de agarre más ancho (38px) y más bajo (20px) para Interruptores y LEDs
+            ancho_agarre_io: 38.0,
+            alto_io: 20.0,
             
             rad_clic_con: 12.0,
             rad_clic_nodo: 35.0,
-            // Las puertas lógicas encajan en la cuadrícula de 50px
             paso_snap_puerta: 50.0,
-            // Los Interruptores y LEDs encajan cada 5px (posiciones intermedias libres)
             paso_snap_io: 5.0,
-            // Los codos de los cables encajan cada 5px
             paso_snap_codo: 5.0,
 
             col_fondo: Color::srgb(0.90, 0.92, 0.96),
             col_cuadricula: Color::srgb(0.76, 0.79, 0.84),
-            // Gris clarito para las barras donde se colocan las entradas y salidas
             col_barra_io: Color::srgb(0.75, 0.78, 0.83),
             col_puerta: Color::srgb(0.35, 0.38, 0.44),
             col_patilla: Color::srgb(0.08, 0.08, 0.10),
             col_con_hueco: Color::srgb(0.60, 0.62, 0.66),
             col_cable_tmp: Color::srgb(0.85, 0.55, 0.0),
 
-            // Rectángulo negro con letras verde claro para máxima visibilidad
             col_etiqueta_fondo: Color::srgb(0.05, 0.06, 0.08),
             col_etiqueta_texto: Color::srgb(0.25, 1.0, 0.35),
             

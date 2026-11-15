@@ -389,12 +389,12 @@ pub fn abrir_submenu(
 pub fn reconstruir_barra_inferior_chips(
     commands: &mut Commands,
     q_barra_existente: &Query<Entity, With<BarraInferiorChips>>,
+    scroll_offset: usize,
 ) {
     for ent in q_barra_existente.iter() {
         commands.entity(ent).despawn();
     }
 
-    // Leemos todos los chips (.chp) desde la carpeta "chips"
     let archivos_chp = listar_archivos_por_ext("chips", "chp");
     let mut chips_validos = Vec::new();
 
@@ -411,34 +411,93 @@ pub fn reconstruir_barra_inferior_chips(
             bottom: Val::Px(10.0),
             left: Val::Px(16.0),
             right: Val::Px(16.0),
-            height: Val::Px(46.0),
+            height: Val::Px(42.0),
             align_items: AlignItems::Center,
             justify_content: JustifyContent::FlexStart,
-            column_gap: Val::Px(10.0),
-            padding: UiRect::horizontal(Val::Px(14.0)),
+            column_gap: Val::Px(6.0),
+            padding: UiRect::horizontal(Val::Px(10.0)),
             ..default()
         },
         BackgroundColor(Color::srgba(0.08, 0.09, 0.12, 0.92)),
         BarraInferiorChips,
     ))
     .with_children(|barra| {
+        // Etiqueta CHIPS (ancho 48px)
         barra.spawn((
             Node {
-                width: Val::Px(60.0),
+                width: Val::Px(48.0),
                 ..default()
             },
             Text::new("CHIPS:"),
             TextFont {
-                font_size: bevy::text::FontSize::Px(14.0),
+                font_size: bevy::text::FontSize::Px(13.0),
                 ..default()
             },
             TextColor(Color::srgb(0.65, 0.75, 0.90)),
         ));
 
+        // Botón [<] para deslizar la barra hacia la izquierda
+        let x_izq_min = 16.0 + 10.0 + 48.0 + 6.0;
+        let x_izq_max = x_izq_min + 26.0;
+        barra.spawn((
+            Node {
+                width: Val::Px(26.0),
+                height: Val::Px(28.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.16, 0.20, 0.28)),
+            BotonScrollBarra {
+                delta: -1,
+                x_min: x_izq_min,
+                x_max: x_izq_max,
+            },
+        ))
+        .with_children(|b| {
+            b.spawn((
+                Text::new("<"),
+                TextFont {
+                    font_size: bevy::text::FontSize::Px(14.0),
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+            ));
+        });
+
+        // Botón [>] para deslizar la barra hacia la derecha
+        let x_der_min = x_izq_max + 6.0;
+        let x_der_max = x_der_min + 26.0;
+        barra.spawn((
+            Node {
+                width: Val::Px(26.0),
+                height: Val::Px(28.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.16, 0.20, 0.28)),
+            BotonScrollBarra {
+                delta: 1,
+                x_min: x_der_min,
+                x_max: x_der_max,
+            },
+        ))
+        .with_children(|b| {
+            b.spawn((
+                Text::new(">"),
+                TextFont {
+                    font_size: bevy::text::FontSize::Px(14.0),
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+            ));
+        });
+
         if chips_validos.is_empty() {
             barra.spawn((
                 Text::new(
-                    "(Carpeta chips/ vacía: usa Chip >> Guardar .chp para crear un Chip)"
+                    "(Carpeta chips/ vacia: usa Chip >> Guardar .chp para crear un Chip)"
                 ),
                 TextFont {
                     font_size: bevy::text::FontSize::Px(13.0),
@@ -447,19 +506,26 @@ pub fn reconstruir_barra_inferior_chips(
                 TextColor(Color::srgb(0.5, 0.52, 0.58)),
             ));
         } else {
-            let mut cursor_x = 100.0;
-            let ancho_fijo_btn = 110.0;
-            let gap = 10.0;
+            let mut cursor_x = x_der_max + 6.0;
+            let gap = 6.0;
+            let inicio = scroll_offset.min(chips_validos.len().saturating_sub(1));
 
-            for (archivo_chp, nombre_chip) in chips_validos {
+            for (archivo_chp, nombre_chip) in chips_validos.into_iter().skip(inicio) {
+                // Ancho compacto adaptado al nombre del chip
+                let ancho_btn = (nombre_chip.len() as f32 * 8.5 + 22.0).max(58.0);
+                // Evitamos que se salgan por el borde derecho de la ventana
+                if cursor_x + ancho_btn > 1240.0 {
+                    break;
+                }
+
                 let x_min = cursor_x;
-                let x_max = cursor_x + ancho_fijo_btn;
+                let x_max = cursor_x + ancho_btn;
                 cursor_x = x_max + gap;
 
                 barra.spawn((
                     Node {
-                        width: Val::Px(ancho_fijo_btn),
-                        height: Val::Px(32.0),
+                        width: Val::Px(ancho_btn),
+                        height: Val::Px(28.0),
                         justify_content: JustifyContent::Center,
                         align_items: AlignItems::Center,
                         ..default()
@@ -473,9 +539,9 @@ pub fn reconstruir_barra_inferior_chips(
                 ))
                 .with_children(|btn| {
                     btn.spawn((
-                        Text::new(format!("+ {}", nombre_chip)),
+                        Text::new(format!("+{}", nombre_chip)),
                         TextFont {
-                            font_size: bevy::text::FontSize::Px(14.0),
+                            font_size: bevy::text::FontSize::Px(12.0),
                             ..default()
                         },
                         TextColor(Color::WHITE),
@@ -538,8 +604,9 @@ pub fn reconstruir_barra_superior_inspeccion(
             BotonVolverInspeccion,
         ))
         .with_children(|btn| {
+            // Sin acento en ATRAS para evitar caracteres rotos en la fuente por defecto
             btn.spawn((
-                Text::new("< VOLVER ATRÁS"),
+                Text::new("< VOLVER ATRAS"),
                 TextFont {
                     font_size: bevy::text::FontSize::Px(14.0),
                     ..default()
@@ -561,21 +628,34 @@ pub fn reconstruir_barra_superior_inspeccion(
 
 // ==========================================
 // Fichero: src/menus.rs
-// Bloque: Bloque 5: Interacción con las Barras Flotantes UI (Soporte Multi-Chip DLS)
+// Bloque: Bloque 5: Interacción con las Barras Flotantes UI (Scroll y Multi-Chip)
 // ==========================================
 pub fn gestionar_clic_barras_ui(
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
     q_camera: Query<&Transform, With<CamaraPrincipal>>,
-    mut q_botones_inf: Query<
-        (&BotonChipInferior, &mut BackgroundColor),
-        Without<BotonVolverInspeccion>,
-    >,
-    mut q_boton_volver: Query<
-        &mut BackgroundColor,
-        With<BotonVolverInspeccion>,
-    >,
+    q_barra_inf: Query<Entity, With<BarraInferiorChips>>,
+    mut scroll_barra: ResMut<DesplazamientoBarraChips>,
+    // Añadimos filtros Without cruzados para evitar el conflicto ECS B0001 en BackgroundColor
+    q_botones_ui: (
+        Query<
+            (&BotonChipInferior, &mut BackgroundColor),
+            (Without<BotonScrollBarra>, Without<BotonVolverInspeccion>),
+        >,
+        Query<
+            (&BotonScrollBarra, &mut BackgroundColor),
+            (Without<BotonChipInferior>, Without<BotonVolverInspeccion>),
+        >,
+        Query<
+            &mut BackgroundColor,
+            (
+                With<BotonVolverInspeccion>,
+                Without<BotonChipInferior>,
+                Without<BotonScrollBarra>,
+            ),
+        >,
+    ),
     mut commands: Commands,
     config: Res<ConfigApp>,
 ) {
@@ -584,7 +664,13 @@ pub fn gestionar_clic_barras_ui(
         return;
     };
 
-    // 1. Clic en el botón superior [< VOLVER ATRÁS]
+    let (
+        mut q_botones_inf, 
+        mut q_botones_scroll, 
+        mut q_boton_volver
+    ) = q_botones_ui;
+
+    // 1. Clic en el botón superior [< VOLVER ATRAS]
     for mut color_volver in q_boton_volver.iter_mut() {
         let en_y_sup = pos_cursor.y >= 10.0 && pos_cursor.y <= 54.0;
         let en_x_sup = pos_cursor.x >= 30.0 && pos_cursor.x <= 190.0;
@@ -602,13 +688,42 @@ pub fn gestionar_clic_barras_ui(
         }
     }
 
-    // 2. Clic en los botones de la barra inferior de Chips:
-    //    El chip nace enganchado al cursor (Arrastrando). Mientras lo llevas en la mano,
-    //    pulsar [D] o [Flecha Arriba] añade más copias a la columna antes de soltarlo.
     let alto_ventana = window.height();
-    let dentro_franja_y = pos_cursor.y >= (alto_ventana - 56.0) 
+    let dentro_franja_y = pos_cursor.y >= (alto_ventana - 52.0) 
         && pos_cursor.y <= (alto_ventana - 10.0);
 
+    // 2. Clic en los botones [<] y [>] para deslizar la barra inferior
+    let mut cambio_scroll = None;
+    for (btn_sc, mut color_sc) in q_botones_scroll.iter_mut() {
+        let dentro_x = pos_cursor.x >= btn_sc.x_min 
+            && pos_cursor.x <= btn_sc.x_max;
+        if dentro_franja_y && dentro_x {
+            if buttons.just_pressed(MouseButton::Left) {
+                cambio_scroll = Some(btn_sc.delta);
+            }
+            *color_sc = BackgroundColor(Color::srgb(0.28, 0.36, 0.48));
+        } else {
+            *color_sc = BackgroundColor(Color::srgb(0.16, 0.20, 0.28));
+        }
+    }
+
+    if let Some(delta) = cambio_scroll {
+        let total_chips = listar_archivos_por_ext("chips", "chp").len();
+        if delta < 0 {
+            scroll_barra.indice_inicio = 
+                scroll_barra.indice_inicio.saturating_sub(1);
+        } else if scroll_barra.indice_inicio + 1 < total_chips {
+            scroll_barra.indice_inicio += 1;
+        }
+        reconstruir_barra_inferior_chips(
+            &mut commands,
+            &q_barra_inf,
+            scroll_barra.indice_inicio,
+        );
+        return;
+    }
+
+    // 3. Clic en los botones de Chips de la barra inferior
     let centro_cam = q_camera
         .single()
         .map(|t| t.translation.truncate())
@@ -645,7 +760,9 @@ pub fn gestionar_clic_barras_ui(
                         .len()
                         .max(datos.pines_salida.len())
                         .max(1);
-                    let alto_est = (max_pines as f32 * 24.0 + 36.0).max(100.0);
+                    let alto_est = (
+                        max_pines as f32 * config.sep_pines_chip + 36.0
+                    ).max(100.0);
                     let sep_vertical = (alto_est / paso).ceil() * paso;
 
                     for i in 0..cantidad {
@@ -660,7 +777,6 @@ pub fn gestionar_clic_barras_ui(
                             datos.clone(),
                             &config,
                         );
-                        // Lo enganchamos al cursor para colocarlo donde quiera el usuario
                         commands
                             .entity(ent_chip)
                             .insert(Arrastrando { offset_y });

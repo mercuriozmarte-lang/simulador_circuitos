@@ -51,7 +51,7 @@ pub fn detectar_clic_nodo(
         (Entity, &GlobalTransform, &TipoConector)
     >,
     q_cables: Query<(Entity, &Cable)>,
-    mut controles_nodos: (
+    controles_nodos: (
         Query<
             (&GlobalTransform, &mut BotonInterruptor, &mut Sprite),
             Without<ControlReloj>,
@@ -123,7 +123,9 @@ pub fn detectar_clic_nodo(
             let paso = config.paso_snap_puerta;
             let sep_vertical = if let Some(ref d) = datos_base {
                 let max_p = d.pines_entrada.len().max(d.pines_salida.len()).max(1);
-                let alto_est = (max_p as f32 * 24.0 + 36.0).max(100.0);
+                let alto_est = (
+                    max_p as f32 * config.sep_pines_chip + 36.0
+                ).max(100.0);
                 (alto_est / paso).ceil() * paso
             } else {
                 100.0
@@ -167,12 +169,12 @@ pub fn detectar_clic_nodo(
     }
 
     // 0B. Si NO llevamos nada en la mano y pulsa [D] sobre una pieza del lienzo,
-    //     creamos una copia enganchada al ratón lista para colocar.
+    //     creamos una copia lista para colocar.
     if en_mano.is_empty() && keys.just_pressed(KeyCode::KeyD) {
         for (_, trf, nodo, opt_chip, _) in q_nodos.iter() {
             let centro = trf.translation.truncate();
             if pos_mundo.distance(centro) < config.rad_clic_nodo {
-                let nueva_pos = Vec2::new(centro.x, centro.y - 100.0);
+                let nueva_pos = Vec2::new(centro.x, centro.y - config.sep_pines_chip);
                 match nodo.tipo {
                     TipoPuerta::And
                     | TipoPuerta::Or
@@ -185,7 +187,7 @@ pub fn detectar_clic_nodo(
                             commands,
                             meshes,
                             materials,
-                            nueva_pos,
+                            Vec2::new(centro.x, centro.y - 100.0),
                             nodo.tipo,
                             &config,
                         );
@@ -216,16 +218,26 @@ pub fn detectar_clic_nodo(
                             commands,
                             meshes,
                             materials,
-                            nueva_pos,
+                            Vec2::new(centro.x, centro.y - 100.0),
                             1,
                             &config,
                         );
                     }
                     TipoPuerta::Display4Bits => {
-                        crear_display(commands, nueva_pos, true, &config);
+                        crear_display(
+                            commands, 
+                            Vec2::new(centro.x, centro.y - 150.0), 
+                            true, 
+                            &config
+                        );
                     }
                     TipoPuerta::Display7Seg => {
-                        crear_display(commands, nueva_pos, false, &config);
+                        crear_display(
+                            commands, 
+                            Vec2::new(centro.x, centro.y - 150.0), 
+                            false, 
+                            &config
+                        );
                     }
                     TipoPuerta::Chip => {
                         if let Some(chip) = opt_chip {
@@ -340,11 +352,11 @@ pub fn detectar_clic_nodo(
         }
     }
 
-    // 2. Prioridad 2: Clic en el cuadrado de cambio de estado (0 / 1)
+    // 2. Prioridad 2: Clic en el cuadrado de cambio de estado (0 / 1) del Interruptor compacto
     for (g_trf, mut boton, mut sprite) in q_botones.iter_mut() {
         let pos_boton = g_trf.translation().truncate();
-        if (pos_mundo.x - pos_boton.x).abs() < 13.0 
-            && (pos_mundo.y - pos_boton.y).abs() < 13.0 
+        if (pos_mundo.x - pos_boton.x).abs() < 11.0 
+            && (pos_mundo.y - pos_boton.y).abs() < (config.alto_io / 2.0 + 1.0) 
         {
             boton.estado = !boton.estado;
             if boton.estado {
@@ -394,9 +406,20 @@ pub fn detectar_clic_nodo(
     }
 
     // 3. Prioridad 3: Clic en el cuerpo del nodo para arrastrarlo
-    for (entidad, trf, _, _, _) in q_nodos.iter() {
+    //    Para Interruptores y LEDs comprobamos su rectángulo de agarre (config.ancho_agarre_io x config.alto_io)
+    for (entidad, trf, nodo, _, _) in q_nodos.iter() {
         let centro_nodo = trf.translation.truncate();
-        if pos_mundo.distance(centro_nodo) < config.rad_clic_nodo {
+        let clic_dentro = if matches!(
+            nodo.tipo, 
+            TipoPuerta::Interruptor | TipoPuerta::Led
+        ) {
+            (pos_mundo.x - centro_nodo.x).abs() <= (config.ancho_agarre_io / 2.0 + 4.0)
+                && (pos_mundo.y - centro_nodo.y).abs() <= (config.alto_io / 2.0 + 2.0)
+        } else {
+            pos_mundo.distance(centro_nodo) < config.rad_clic_nodo
+        };
+
+        if clic_dentro {
             commands.entity(entidad).insert(Arrastrando { offset_y: 0.0 });
             return; 
         }

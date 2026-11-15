@@ -13,7 +13,10 @@ pub enum ModoApp {
     CreandoLinea,
 }
 
-// --- Bloque 3: Recursos Globales ---
+// ==========================================
+// Fichero: src/componentes.rs
+// Bloque: Bloque 3: Recursos Globales
+// ==========================================
 #[derive(Resource, Default)]
 pub struct EstadoCrearLinea {
     pub origen_entidad: Option<Entity>,
@@ -34,6 +37,12 @@ pub struct PilaInspeccion {
 #[derive(Resource, Default)]
 pub struct HistorialUndo {
     pub estados: Vec<String>,
+}
+
+// NUEVO: Controla el desplazamiento horizontal (scroll) de los botones de la barra inferior
+#[derive(Resource, Default)]
+pub struct DesplazamientoBarraChips {
+    pub indice_inicio: usize,
 }
 
 // ==========================================
@@ -204,7 +213,10 @@ pub struct Cable {
     pub puntos_intermedios: Vec<Vec2>,
 }
 
-// --- Bloque 7: Componentes de Menús, Diálogos y Barras UI ---
+// ==========================================
+// Fichero: src/componentes.rs
+// Bloque: Bloque 7: Componentes de Menús, Diálogos y Barras UI
+// ==========================================
 #[derive(Component)]
 pub struct MenuContextual {
     pub pos_creacion: Vec2,
@@ -274,6 +286,14 @@ pub struct BarraInferiorChips;
 #[derive(Component)]
 pub struct BotonChipInferior {
     pub archivo_chp: String,
+    pub x_min: f32,
+    pub x_max: f32,
+}
+
+// NUEVO: Botones [<] y [>] para deslizar la barra inferior de Chips
+#[derive(Component)]
+pub struct BotonScrollBarra {
+    pub delta: isize,
     pub x_min: f32,
     pub x_max: f32,
 }

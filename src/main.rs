@@ -72,7 +72,10 @@ use lineas::*;
 use logica::*;
 use archivo::*;
 
-// --- Bloque 3: Función Principal (main) ---
+// ==========================================
+// Fichero: src/main.rs
+// Bloque: Bloque 3: Función Principal (main)
+// ==========================================
 fn main() {
     let config_inicial = ConfigApp::default();
     let color_fondo = config_inicial.col_fondo;
@@ -92,6 +95,7 @@ fn main() {
         .init_resource::<CodoArrastrado>()
         .init_resource::<PilaInspeccion>()
         .init_resource::<HistorialUndo>()
+        .init_resource::<DesplazamientoBarraChips>()
         .init_state::<ModoApp>()
         .add_systems(Startup, setup_entorno)
         .add_systems(
@@ -125,7 +129,10 @@ fn main() {
         .run();
 }
 
-// --- Bloque 4: Inicialización del Entorno (setup_entorno) ---
+// ==========================================
+// Fichero: src/main.rs
+// Bloque: Bloque 4: Inicialización del Entorno (setup_entorno)
+// ==========================================
 fn setup_entorno(
     mut commands: Commands,
     q_barra_inf: Query<Entity, With<BarraInferiorChips>>,
@@ -144,7 +151,7 @@ fn setup_entorno(
         &mut config_store, 
         &config
     );
-    reconstruir_barra_inferior_chips(&mut commands, &q_barra_inf);
+    reconstruir_barra_inferior_chips(&mut commands, &q_barra_inf, 0);
 
     crear_interruptor(
         &mut commands,

@@ -387,7 +387,10 @@ pub fn gestionar_teclado_archivo(
     }
 }
 
-// --- Bloque 7: Diálogo para Nombrar Pines con la Tecla N ---
+// ==========================================
+// Fichero: src/archivo.rs
+// Bloque: Bloque 7: Diálogo para Nombrar Pines con la Tecla N (Izquierda en INT / Derecha en LED)
+// ==========================================
 pub fn gestionar_nombrado_pin(
     keys: Res<ButtonInput<KeyCode>>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
@@ -404,12 +407,30 @@ pub fn gestionar_nombrado_pin(
         &mut Text2d, 
         (With<TextoInputEtiqueta>, Without<TextoEtiquetaNodo>)
     >,
-    mut q_nodos_etq: Query<(Entity, &Transform, &Children, &mut EtiquetaNodo)>,
+    mut q_nodos_etq: Query<(
+        Entity, 
+        &Transform, 
+        &NodoLogico, 
+        &Children, 
+        &mut EtiquetaNodo
+    )>,
     mut q_txt_nodo: Query<
-        &mut Text2d, 
-        (With<TextoEtiquetaNodo>, Without<TextoInputEtiqueta>)
+        (&mut Text2d, &mut Transform), 
+        (
+            With<TextoEtiquetaNodo>, 
+            Without<TextoInputEtiqueta>, 
+            Without<FondoEtiquetaNodo>,
+            Without<NodoLogico>,
+        )
     >,
-    mut q_fondo_etq: Query<(&mut Sprite, &mut Visibility), With<FondoEtiquetaNodo>>,
+    mut q_fondo_etq: Query<
+        (&mut Sprite, &mut Visibility, &mut Transform), 
+        (
+            With<FondoEtiquetaNodo>, 
+            Without<TextoEtiquetaNodo>,
+            Without<NodoLogico>,
+        )
+    >,
     mut commands: Commands,
     config: Res<ConfigApp>,
 ) {
@@ -421,24 +442,36 @@ pub fn gestionar_nombrado_pin(
 
         if keys.just_pressed(KeyCode::Enter) {
             let nuevo_nom = dlg.texto.trim().to_uppercase();
-            if let Ok((_, _, hijos, mut etq)) = 
+            if let Ok((_, _, nodo_log, hijos, mut etq)) = 
                 q_nodos_etq.get_mut(dlg.nodo_objetivo) 
             {
                 etq.0 = nuevo_nom.clone();
                 let nuevo_ancho = ancho_caja_etiqueta(&nuevo_nom);
+                let w_agarre = config.ancho_agarre_io;
+
+                // En Interruptores va a la izquierda; en LEDs va a la derecha
+                let nuevo_x = if nodo_log.tipo == TipoPuerta::Interruptor {
+                    let x_boton = -(w_agarre / 2.0 + 11.0);
+                    x_boton - 16.0 - nuevo_ancho / 2.0
+                } else {
+                    let x_led = w_agarre / 2.0 + 11.0;
+                    x_led + 16.0 + nuevo_ancho / 2.0
+                };
 
                 for hijo in hijos.iter() {
-                    if let Ok(mut txt) = q_txt_nodo.get_mut(hijo) {
+                    if let Ok((mut txt, mut trf_txt)) = q_txt_nodo.get_mut(hijo) {
                         txt.0 = nuevo_nom.clone();
+                        trf_txt.translation.x = nuevo_x;
                     }
-                    if let Ok((mut spr_fondo, mut vis_fondo)) = 
+                    if let Ok((mut spr_fondo, mut vis_fondo, mut trf_fondo)) = 
                         q_fondo_etq.get_mut(hijo) 
                     {
+                        trf_fondo.translation.x = nuevo_x;
                         if nuevo_nom.is_empty() {
                             *vis_fondo = Visibility::Hidden;
                         } else {
                             *vis_fondo = Visibility::Inherited;
-                            spr_fondo.custom_size = Some(Vec2::new(nuevo_ancho, 20.0));
+                            spr_fondo.custom_size = Some(Vec2::new(nuevo_ancho, 18.0));
                         }
                     }
                 }
@@ -496,7 +529,7 @@ pub fn gestionar_nombrado_pin(
     };
     let pos_cam = cam_trf.translation().truncate();
 
-    for (ent_nodo, trf, _, etq) in q_nodos_etq.iter() {
+    for (ent_nodo, trf, _, _, etq) in q_nodos_etq.iter() {
         let centro = trf.translation.truncate();
         if pos_mundo.distance(centro) < config.rad_clic_nodo {
             let actual = etq.0.clone();
@@ -514,7 +547,7 @@ pub fn gestionar_nombrado_pin(
             ))
             .with_children(|padre| {
                 padre.spawn((
-                    Text2d::new("NOMBRE DEL PIN / CONEXIÓN (Enter = OK, Esc = Salir)"),
+                    Text2d::new("NOMBRE DEL PIN / CONEXION (Enter = OK, Esc = Salir)"),
                     TextFont {
                         font_size: bevy::text::FontSize::Px(13.0),
                         ..default()
@@ -548,7 +581,10 @@ pub fn gestionar_nombrado_pin(
     }
 }
 
-// --- Bloque 8: Sistema de Guardado, Carga, Inspección y Ctrl+Z ---
+// ==========================================
+// Fichero: src/archivo.rs
+// Bloque: Bloque 8: Sistema de Guardado, Carga, Inspección y Ctrl+Z
+// ==========================================
 pub fn procesar_guardado_y_carga(
     keys: Res<ButtonInput<KeyCode>>,
     estado_app: Res<State<ModoApp>>,
@@ -583,9 +619,10 @@ pub fn procesar_guardado_y_carga(
         Query<&PinEntrada>,
         Query<&PinSalida>,
     ),
-    mut recursos_historial: (
+    recursos_historial: (
         ResMut<PilaInspeccion>,
         ResMut<HistorialUndo>,
+        Res<DesplazamientoBarraChips>,
     ),
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -613,10 +650,10 @@ pub fn procesar_guardado_y_carga(
     ) = datos_hijos;
     let (
         mut pila_inspeccion, 
-        mut historial_undo
+        mut historial_undo,
+        scroll_barra,
     ) = recursos_historial;
 
-    // 0A. Detectar pulsación de CTRL + Z para deshacer (Undo)
     let ctrl = keys.pressed(KeyCode::ControlLeft) 
         || keys.pressed(KeyCode::ControlRight);
     if ctrl && keys.just_pressed(KeyCode::KeyZ) && q_dialogo.is_empty() {
@@ -638,7 +675,6 @@ pub fn procesar_guardado_y_carga(
         return;
     }
 
-    // 1. Procesar Guardado si existe petición
     let mut archivo_guardar = None;
     for (ent, pet) in q_guardar.iter() {
         archivo_guardar = Some(pet.0.clone());
@@ -657,11 +693,14 @@ pub fn procesar_guardado_y_carga(
             &q_pines_out,
         );
         if ruta.ends_with(".chp") {
-            reconstruir_barra_inferior_chips(&mut commands, &q_barra_inf);
+            reconstruir_barra_inferior_chips(
+                &mut commands, 
+                &q_barra_inf, 
+                scroll_barra.indice_inicio
+            );
         }
     }
 
-    // 2. Procesar Carga de fichero .cir si existe petición
     let mut archivo_cargar = None;
     for (ent, pet) in q_cargar.iter() {
         archivo_cargar = Some(pet.0.clone());
@@ -689,7 +728,6 @@ pub fn procesar_guardado_y_carga(
         return;
     }
 
-    // 3. Procesar entrada al interior de un Chip ([VER]) en la carpeta chips/
     let mut chip_a_inspeccionar = None;
     for (ent, pet) in q_entrar.iter() {
         chip_a_inspeccionar = Some(pet.0.clone());
@@ -745,7 +783,6 @@ pub fn procesar_guardado_y_carga(
         return;
     }
 
-    // 4. Procesar botón [< VOLVER] para regresar al circuito anterior
     let mut quiere_salir = false;
     for ent in q_salir.iter() {
         quiere_salir = true;
@@ -774,7 +811,6 @@ pub fn procesar_guardado_y_carga(
         return;
     }
 
-    // 5. Captura automática de Undo en reposo
     if q_arrastrando.is_empty() 
         && codo_arrastrado.seleccion.is_none() 
         && *estado_app.get() == ModoApp::Edicion 
