@@ -382,7 +382,10 @@ pub fn abrir_submenu(
     });
 }
 
-// --- Bloque 4: Constructores de las Barras Flotantes UI (Inferior y Superior) ---
+// ==========================================
+// Fichero: src/menus.rs
+// Bloque: Bloque 4: Constructores de las Barras Flotantes UI (Inferior y Superior)
+// ==========================================
 pub fn reconstruir_barra_inferior_chips(
     commands: &mut Commands,
     q_barra_existente: &Query<Entity, With<BarraInferiorChips>>,
@@ -391,12 +394,14 @@ pub fn reconstruir_barra_inferior_chips(
         commands.entity(ent).despawn();
     }
 
-    let archivos_chp = listar_archivos_por_ext("chp");
+    // Leemos todos los chips (.chp) desde la carpeta "chips"
+    let archivos_chp = listar_archivos_por_ext("chips", "chp");
     let mut chips_validos = Vec::new();
 
     for arch in archivos_chp {
-        if let Some(datos) = leer_datos_chip_desde_chp(&arch) {
-            chips_validos.push((arch, datos.nombre));
+        let ruta_completa = format!("chips/{}", arch);
+        if let Some(datos) = leer_datos_chip_desde_chp(&ruta_completa) {
+            chips_validos.push((ruta_completa, datos.nombre));
         }
     }
 
@@ -433,7 +438,7 @@ pub fn reconstruir_barra_inferior_chips(
         if chips_validos.is_empty() {
             barra.spawn((
                 Text::new(
-                    "(Usa Chip >> Guardar .chp con entradas/salidas en las barras para crear un Chip)"
+                    "(Carpeta chips/ vacía: usa Chip >> Guardar .chp para crear un Chip)"
                 ),
                 TextFont {
                     font_size: bevy::text::FontSize::Px(13.0),
@@ -556,7 +561,7 @@ pub fn reconstruir_barra_superior_inspeccion(
 
 // ==========================================
 // Fichero: src/menus.rs
-// Bloque: Bloque 5: Interacción con las Barras Flotantes UI (Soporte Multi-Chip)
+// Bloque: Bloque 5: Interacción con las Barras Flotantes UI (Soporte Multi-Chip DLS)
 // ==========================================
 pub fn gestionar_clic_barras_ui(
     buttons: Res<ButtonInput<MouseButton>>,
@@ -598,9 +603,8 @@ pub fn gestionar_clic_barras_ui(
     }
 
     // 2. Clic en los botones de la barra inferior de Chips:
-    //    - Clic normal : Saca 1 chip.
-    //    - Ctrl + Clic : Saca 2 chips apilados en columna.
-    //    - Shift + Clic: Saca 4 chips apilados en columna (estilo DLS).
+    //    El chip nace enganchado al cursor (Arrastrando). Mientras lo llevas en la mano,
+    //    pulsar [D] o [Flecha Arriba] añade más copias a la columna antes de soltarlo.
     let alto_ventana = window.height();
     let dentro_franja_y = pos_cursor.y >= (alto_ventana - 56.0) 
         && pos_cursor.y <= (alto_ventana - 10.0);
@@ -644,21 +648,22 @@ pub fn gestionar_clic_barras_ui(
                     let alto_est = (max_pines as f32 * 24.0 + 36.0).max(100.0);
                     let sep_vertical = (alto_est / paso).ceil() * paso;
 
-                    let inicio_y = centro_cam.y 
-                        + ((cantidad as f32 - 1.0) * sep_vertical) / 2.0;
-
                     for i in 0..cantidad {
-                        let y_i = inicio_y - (i as f32 * sep_vertical);
-                        let pos_snap = Vec2::new(
-                            (centro_cam.x / paso).round() * paso,
-                            (y_i / paso).round() * paso,
+                        let offset_y = -(i as f32 * sep_vertical);
+                        let pos_inicial = Vec2::new(
+                            centro_cam.x,
+                            centro_cam.y + offset_y,
                         );
-                        crear_chip_personalizado(
+                        let (ent_chip, _, _) = crear_chip_personalizado(
                             &mut commands,
-                            pos_snap,
+                            pos_inicial,
                             datos.clone(),
                             &config,
                         );
+                        // Lo enganchamos al cursor para colocarlo donde quiera el usuario
+                        commands
+                            .entity(ent_chip)
+                            .insert(Arrastrando { offset_y });
                     }
                 }
             } else {

@@ -1,8 +1,7 @@
 // ==========================================
 // Fichero: src/main.rs
+// Bloque: Bloque 1: Manual de Instrucciones y Controles del Simulador
 // ==========================================
-
-// --- Bloque 1: Manual de Instrucciones y Controles del Simulador ---
 // ============================================================================
 //                 MANUAL DE CONTROLES - SIMULADOR LÓGICO 2D
 // ============================================================================
@@ -10,24 +9,28 @@
 //    - Rueda del ratón (Scroll)       : Acercar / Alejar Zoom (0.25x a 4.0x).
 //    - Botón central (Rueda pulsada)  : Arrastrar el lienzo (Pan).
 //    - Espacio + Clic Izquierdo       : Arrastrar el lienzo (alternativa).
-//    - Flechas de dirección           : Desplazar la cámara por el lienzo.
+//    - Flechas Izquierda / Derecha    : Desplazar la cámara horizontalmente.
 //    - Tecla Inicio (Home)            : Volver al centro (0, 0) con Zoom 1.0x.
 //
-// 2. CREACIÓN Y EDICIÓN DE COMPONENTES:
-//    - Clic Derecho en vacío          : Abrir Menú Contextual (Puertas, I/O, etc.).
+// 2. CREACIÓN, APILADO MÚLTIPLE (ESTILO DLS) Y EDICIÓN DE COMPONENTES:
+//    - Clic en Chip de barra inferior : El Chip aparece pegado al cursor.
+//        * Mientras lo llevas pegado al ratón:
+//          - Pulsar [ D ] o [Flecha Arriba] : Añade otra copia a la columna.
+//          - Pulsar [Flecha Abajo]          : Quita una copia de la columna.
+//          - Clic Izquierdo en el lienzo    : Suelta toda la columna de golpe.
+//          - Clic Derecho o [ Esc ]         : Cancela la colocación.
+//        * Atajo rápido desde la barra inferior:
+//          - Ctrl + Clic en botón           : Engancha 2 copias al cursor.
+//          - Shift + Clic en botón          : Engancha 4 copias al cursor.
+//    - Tecla [ D ] sobre pieza fija   : Duplica la pieza bajo el cursor.
 //    - Clic Izquierdo sobre pieza     : Arrastrar componente.
 //        * Puertas / Chips            : Hacen snap a la cuadrícula (50px).
-//        * Interruptores / LEDs       : Hacen snap fino (5px) para posiciones
-//                                       intermedias y se imantan a Barras I/O.
-//    - Clic Izquierdo en Interruptor  : Alternar estado lógico entre 0 y 1.
-//    - Clic Izquierdo en Reloj        : Cambiar frecuencia (OFF, 1, 2, 5, 10 Hz).
-//    - Clic Derecho sobre pieza       : Eliminar el componente.
+//        * Interruptores / LEDs       : Hacen snap fino (5px) e imantan a barras.
 //
 // 3. TRAZADO DE CABLES Y CODOS (MODO 90 GRADOS):
 //    - Clic Izquierdo en Salida (der) : Iniciar el trazado de un nuevo cable.
 //    - Clic Izquierdo en el lienzo    : Añadir una esquina (codo) al cable.
-//    - Mantener Tecla [ L ]           : Forzar línea horizontal o vertical (90°)
-//                                       tanto al crear el cable como al mover codos.
+//    - Mantener Tecla [ L ]           : Forzar línea horizontal o vertical (90°).
 //    - Clic Izquierdo en Entrada (izq): Conectar y finalizar el cable.
 //    - Arrastrar un codo con Clic Izq : Mover la esquina del cable (snap de 5px).
 //    - Clic Derecho sobre un codo     : Eliminar solo esa esquina del cable.
@@ -35,18 +38,12 @@
 //
 // 4. NOMBRADO DE CONEXIONES / PINES:
 //    - Tecla [ N ] sobre Interruptor  : Abrir cuadro para escribir el nombre del
-//      o sobre un LED                   pin (ej: A, B, CIN, SUM). Se muestra en
-//                                       verde claro sobre fondo negro.
+//      o sobre un LED                   pin (ej: A, B, CIN, SUM).
 //
-// 5. CREACIÓN E INSPECCIÓN DE CHIPS (.chp) Y CIRCUITOS (.cir):
-//    - Menú -> Chip -> Barras I/O     : Mostrar/Ocultar barras laterales de pines.
-//    - Menú -> Chip -> Guardar .chp   : Empaqueta el circuito como Chip y añade
-//                                       su botón en la barra inferior flotante.
-//    - Botón [ VER ] dentro de un Chip: Entra a inspeccionar/editar el interior
-//                                       del Chip. Usa [< VOLVER ATRÁS] arriba
-//                                       para regresar al circuito principal.
-//    - Menú -> Archivo -> Guardar .cir: Guarda el circuito completo en disco.
-//    - Menú -> Archivo -> Cargar .cir : Abre la lista de circuitos guardados.
+// 5. CARPETAS DE ARCHIVOS (circuitos/ y chips/) E INSPECCIÓN:
+//    - Carpeta "chips/"               : Guarda y carga todos los chips (.chp).
+//    - Carpeta "circuitos/"           : Guarda y carga los circuitos (.cir).
+//    - Botón [ VER ] dentro de un Chip: Entra a inspeccionar/editar el interior.
 //
 // 6. HISTORIAL (DESHACER):
 //    - Ctrl + Z                       : Deshacer la última modificación (Undo).

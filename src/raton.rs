@@ -1,7 +1,8 @@
 // ==========================================
 // Fichero: src/raton.rs
-// Bloque: Bloque 1: Importaciones
 // ==========================================
+
+// --- Bloque 1: Importaciones ---
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use crate::componentes::*;
@@ -18,10 +19,7 @@ use crate::{
     crear_chip_personalizado,
 };
 
-// ==========================================
-// Fichero: src/raton.rs
-// Bloque: Bloque 2: Detectar Clic Izquierdo y Tecla D (Duplicar Pieza)
-// ==========================================
+// --- Bloque 2: Detectar Clic Izquierdo y Apilado Múltiple en Mano (D / Flechas) ---
 pub fn detectar_clic_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -40,7 +38,13 @@ pub fn detectar_clic_nodo(
         )>
     >,
     q_nodos: Query<
-        (Entity, &Transform, &NodoLogico, Option<&InstanciaChip>), 
+        (
+            Entity, 
+            &Transform, 
+            &NodoLogico, 
+            Option<&InstanciaChip>,
+            Option<&Arrastrando>,
+        ), 
         With<NodoLogico>
     >,
     q_conectores: Query<
@@ -64,7 +68,7 @@ pub fn detectar_clic_nodo(
     mut codo_arrastrado: ResMut<CodoArrastrado>,
     mut next_state: ResMut<NextState<ModoApp>>,
     mut recursos_render: (
-         Commands,
+        Commands,
         ResMut<Assets<Mesh>>,
         ResMut<Assets<ColorMaterial>>,
     ),
@@ -92,9 +96,80 @@ pub fn detectar_clic_nodo(
         ref mut materials
     ) = recursos_render;
 
-    // ATAJO TECLA [ D ]: Duplicar cualquier Puerta, I/O o Chip bajo el cursor
-    if keys.just_pressed(KeyCode::KeyD) {
-        for (_, trf, nodo, opt_chip) in q_nodos.iter() {
+    // 0A. SI YA LLEVAMOS PIEZAS ENGANCHADAS AL CURSOR (Estilo DLS):
+    //     - Pulsar [D] o [Flecha Arriba] añade otra copia debajo en la columna.
+    //     - Pulsar [Flecha Abajo] elimina la última copia de la columna.
+    let mut en_mano: Vec<(Entity, TipoPuerta, Option<DatosChip>, f32)> = Vec::new();
+    for (ent, _, nodo, opt_chip, opt_arr) in q_nodos.iter() {
+        if let Some(arr) = opt_arr {
+            en_mano.push((
+                ent,
+                nodo.tipo,
+                opt_chip.map(|c| c.datos.clone()),
+                arr.offset_y,
+            ));
+        }
+    }
+
+    if !en_mano.is_empty() {
+        if keys.just_pressed(KeyCode::KeyD) || keys.just_pressed(KeyCode::ArrowUp) {
+            // Buscamos el offset_y más bajo de la columna actual
+            let (_, tipo_base, datos_base, min_offset) = en_mano
+                .iter()
+                .min_by(|a, b| a.3.partial_cmp(&b.3).unwrap())
+                .cloned()
+                .unwrap();
+
+            let paso = config.paso_snap_puerta;
+            let sep_vertical = if let Some(ref d) = datos_base {
+                let max_p = d.pines_entrada.len().max(d.pines_salida.len()).max(1);
+                let alto_est = (max_p as f32 * 24.0 + 36.0).max(100.0);
+                (alto_est / paso).ceil() * paso
+            } else {
+                100.0
+            };
+
+            let nuevo_offset = min_offset - sep_vertical;
+            let pos_nueva = Vec2::new(pos_mundo.x, pos_mundo.y + nuevo_offset);
+
+            if tipo_base == TipoPuerta::Chip {
+                if let Some(datos) = datos_base {
+                    let (ent_nuevo, _, _) = crear_chip_personalizado(
+                        commands,
+                        pos_nueva,
+                        datos,
+                        &config,
+                    );
+                    commands
+                        .entity(ent_nuevo)
+                        .insert(Arrastrando { offset_y: nuevo_offset });
+                }
+            }
+            return;
+        }
+
+        if keys.just_pressed(KeyCode::ArrowDown) && en_mano.len() > 1 {
+            if let Some((ent_ultimo, _, _, _)) = en_mano
+                .iter()
+                .min_by(|a, b| a.3.partial_cmp(&b.3).unwrap())
+            {
+                commands.entity(*ent_ultimo).despawn();
+            }
+            return;
+        }
+
+        if keys.just_pressed(KeyCode::Escape) {
+            for (ent, _, _, _) in en_mano {
+                commands.entity(ent).despawn();
+            }
+            return;
+        }
+    }
+
+    // 0B. Si NO llevamos nada en la mano y pulsa [D] sobre una pieza del lienzo,
+    //     creamos una copia enganchada al ratón lista para colocar.
+    if en_mano.is_empty() && keys.just_pressed(KeyCode::KeyD) {
+        for (_, trf, nodo, opt_chip, _) in q_nodos.iter() {
             let centro = trf.translation.truncate();
             if pos_mundo.distance(centro) < config.rad_clic_nodo {
                 let nueva_pos = Vec2::new(centro.x, centro.y - 100.0);
@@ -154,12 +229,15 @@ pub fn detectar_clic_nodo(
                     }
                     TipoPuerta::Chip => {
                         if let Some(chip) = opt_chip {
-                            crear_chip_personalizado(
+                            let (ent_c, _, _) = crear_chip_personalizado(
                                 commands,
-                                nueva_pos,
+                                pos_mundo,
                                 chip.datos.clone(),
                                 &config,
                             );
+                            commands
+                                .entity(ent_c)
+                                .insert(Arrastrando { offset_y: 0.0 });
                         }
                     }
                 }
@@ -176,13 +254,19 @@ pub fn detectar_clic_nodo(
         return;
     }
 
+    // Si ya llevábamos una columna de chips flotando en el cursor (desde la barra inferior),
+    // este clic izquierdo se encargará de soltarlos en `soltar_nodo` al liberar el botón.
+    if !en_mano.is_empty() {
+        return;
+    }
+
     let (
         mut q_botones, 
         mut q_relojes, 
         q_botones_ver_chip
     ) = controles_nodos;
 
-    // MODO CREANDO LÍNEA: Añadir codo (con soporte 90° en tecla L) o finalizar cable
+    // MODO CREANDO LÍNEA: Añadir codo o finalizar cable
     if *estado_app.get() == ModoApp::CreandoLinea {
         for (ent_destino, g_trf, tipo) in q_conectores.iter() {
             let pos_conector = g_trf.translation().truncate();
@@ -310,16 +394,16 @@ pub fn detectar_clic_nodo(
     }
 
     // 3. Prioridad 3: Clic en el cuerpo del nodo para arrastrarlo
-    for (entidad, trf, _, _) in q_nodos.iter() {
+    for (entidad, trf, _, _, _) in q_nodos.iter() {
         let centro_nodo = trf.translation.truncate();
         if pos_mundo.distance(centro_nodo) < config.rad_clic_nodo {
-            commands.entity(entidad).insert(Arrastrando);
+            commands.entity(entidad).insert(Arrastrando { offset_y: 0.0 });
             return; 
         }
     }
 }
 
-// --- Bloque 3: Soltar Ratón, Snap Diferenciado (Puertas vs I/O) e Imantar a Barras ---
+// --- Bloque 3: Soltar Ratón, Snap Diferenciado e Imantar a Barras ---
 pub fn soltar_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
     mut q_arrastrando: Query<
@@ -347,7 +431,14 @@ pub fn soltar_nodo(
         return;
     }
 
-    // 0. Si estábamos arrastrando el codo de un cable, lo encajamos a config.paso_snap_codo (5px)
+    let Ok(window) = q_windows.single() else { return; };
+    // Si acaba de soltar el clic sobre la barra inferior de botones, mantenemos los chips en la mano
+    if let Some(pos_cur) = window.cursor_position() {
+        if pos_cur.y >= (window.height() - 56.0) {
+            return;
+        }
+    }
+
     if let Some((ent_cable, idx)) = codo_arrastrado.seleccion.take() {
         if let Ok(mut cable) = q_cables.get_mut(ent_cable) {
             if let Some(codo) = cable.puntos_intermedios.get_mut(idx) {
@@ -359,8 +450,6 @@ pub fn soltar_nodo(
         return;
     }
 
-    // 1. Soltar nodos arrastrados: Interruptores y LEDs usan paso_snap_io (5px)
-    //    para poder colocarse en posiciones intermedias; el resto usa paso_snap_puerta (50px).
     for (entidad, mut trf, nodo) in q_arrastrando.iter_mut() {
         let paso = if matches!(
             nodo.tipo, 
@@ -409,11 +498,9 @@ pub fn soltar_nodo(
         commands.entity(entidad).remove::<Arrastrando>();
     }
 
-    // 2. Cerrar cable directo sin codos al soltar sobre una Entrada
     if *estado_app.get() == ModoApp::CreandoLinea 
         && estado_linea.puntos_intermedios.is_empty() 
     {
-        let Ok(window) = q_windows.single() else { return; };
         let Ok((cam, cam_trf)) = q_camera.single() else { return; };
 
         if let Some(pos_pantalla) = window.cursor_position() {
@@ -451,7 +538,7 @@ pub fn soltar_nodo(
     }
 }
 
-// --- Bloque 4: Mover Nodo o Codo Arrastrado (con Soporte 90° en Tecla L) ---
+// --- Bloque 4: Mover Nodo(s) con su Offset de Columna o Codo Arrastrado ---
 pub fn mover_nodo_arrastrado(
     keys: Res<ButtonInput<KeyCode>>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
@@ -460,7 +547,7 @@ pub fn mover_nodo_arrastrado(
         With<CamaraPrincipal>
     >,
     q_global_trf: Query<&GlobalTransform>,
-    mut q_arrastrando: Query<&mut Transform, With<Arrastrando>>,
+    mut q_arrastrando: Query<(&mut Transform, &Arrastrando)>,
     codo_arrastrado: Res<CodoArrastrado>,
     mut q_cables: Query<&mut Cable>,
 ) {
@@ -472,14 +559,13 @@ pub fn mover_nodo_arrastrado(
             cam_trf, 
             pos_pantalla
         ) {
-            for mut trf in q_arrastrando.iter_mut() {
+            for (mut trf, arr) in q_arrastrando.iter_mut() {
                 trf.translation.x = pos_mundo.x;
-                trf.translation.y = pos_mundo.y;
+                trf.translation.y = pos_mundo.y + arr.offset_y;
             }
 
             if let Some((ent_cable, idx)) = codo_arrastrado.seleccion {
                 if let Ok(mut cable) = q_cables.get_mut(ent_cable) {
-                    // Punto anterior al codo para bloquear a 90° si pulsa L
                     let pto_ref = if idx > 0 {
                         cable.puntos_intermedios.get(idx - 1).copied()
                     } else {
@@ -506,7 +592,7 @@ pub fn mover_nodo_arrastrado(
     }
 }
 
-// --- Bloque 5: Borrar Nodo, Codo, Cable o Abrir Menú con Clic Derecho ---
+// --- Bloque 5: Borrar Nodo, Codo, Cable, Cancelar Columna o Abrir Menú ---
 pub fn borrar_con_clic_derecho(
     buttons: Res<ButtonInput<MouseButton>>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
@@ -514,6 +600,7 @@ pub fn borrar_con_clic_derecho(
         (&Camera, &GlobalTransform), 
         With<CamaraPrincipal>
     >,
+    q_arrastrando: Query<Entity, With<Arrastrando>>,
     q_nodos: Query<(Entity, &Transform), With<NodoLogico>>,
     mut q_cables: Query<(Entity, &mut Cable)>,
     q_global_trf: Query<&GlobalTransform>,
@@ -526,6 +613,14 @@ pub fn borrar_con_clic_derecho(
     config: Res<ConfigApp>,
 ) {
     if !buttons.just_pressed(MouseButton::Right) {
+        return;
+    }
+
+    // Si llevábamos una columna de chips en la mano, el clic derecho cancela su colocación
+    if !q_arrastrando.is_empty() {
+        for ent in q_arrastrando.iter() {
+            commands.entity(ent).despawn();
+        }
         return;
     }
 

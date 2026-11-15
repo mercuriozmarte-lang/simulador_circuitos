@@ -2,8 +2,9 @@
 // Fichero: src/archivo.rs
 // ==========================================
 
-// --- Bloque 1: Importaciones ---
+// --- Bloque 1: Importaciones y Constantes de Carpetas ---
 use std::fs;
+use std::path::Path;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use crate::componentes::*;
@@ -23,6 +24,14 @@ use crate::{
     ancho_caja_etiqueta,
 };
 
+pub const CARPETA_CIRCUITOS: &str = "circuitos";
+pub const CARPETA_CHIPS: &str = "chips";
+
+pub fn asegurar_carpetas() {
+    let _ = fs::create_dir_all(CARPETA_CIRCUITOS);
+    let _ = fs::create_dir_all(CARPETA_CHIPS);
+}
+
 // --- Bloque 2: Eventos de Guardado, Carga e Inspección de Chips ---
 #[derive(Component)]
 pub struct PeticionGuardar(pub String);
@@ -36,22 +45,26 @@ pub struct PeticionEntrarChip(pub String);
 #[derive(Component)]
 pub struct PeticionSalirChip;
 
-// --- Bloque 3: Creador del Cuadro de Diálogo (.cir o .chp) ---
+// --- Bloque 3: Creador del Cuadro de Diálogo (.cir en circuitos/ o .chp en chips/) ---
 pub fn abrir_dialogo_archivo(
     commands: &mut Commands,
     pos_cam: Vec2,
     es_chip: bool,
 ) {
-    let (titulo, nombre_defecto, ext) = if es_chip {
+    asegurar_carpetas();
+
+    let (titulo, nombre_defecto, carpeta, ext) = if es_chip {
         (
-            "GUARDAR CHIP .CHP (Enter = OK, Esc = Cancelar)",
+            "GUARDAR CHIP EN chips/ (Enter = OK, Esc = Cancelar)",
             "mi_chip".to_string(),
+            CARPETA_CHIPS,
             ".chp",
         )
     } else {
         (
-            "GUARDAR CIRCUITO .CIR (Enter = OK, Esc = Cancelar)",
+            "GUARDAR CIRCUITO EN circuitos/ (Enter = OK, Esc = Cancelar)",
             "circuito".to_string(),
+            CARPETA_CIRCUITOS,
             ".cir",
         )
     };
@@ -59,7 +72,7 @@ pub fn abrir_dialogo_archivo(
     commands.spawn((
         Sprite {
             color: Color::srgb(0.10, 0.12, 0.16),
-            custom_size: Some(Vec2::new(460.0, 110.0)),
+            custom_size: Some(Vec2::new(480.0, 110.0)),
             ..default()
         },
         Transform::from_xyz(pos_cam.x, pos_cam.y, 20.0),
@@ -82,13 +95,13 @@ pub fn abrir_dialogo_archivo(
         padre.spawn((
             Sprite {
                 color: Color::srgb(0.05, 0.05, 0.07),
-                custom_size: Some(Vec2::new(360.0, 38.0)),
+                custom_size: Some(Vec2::new(380.0, 38.0)),
                 ..default()
             },
             Transform::from_xyz(0.0, -12.0, 0.1),
         ));
 
-        let texto_inicial = format!("{}_{}", nombre_defecto, ext);
+        let texto_inicial = format!("{}/{}_{}", carpeta, nombre_defecto, ext);
         padre.spawn((
             Text2d::new(texto_inicial),
             TextFont {
@@ -102,12 +115,13 @@ pub fn abrir_dialogo_archivo(
     });
 }
 
-// --- Bloque 4: Selector Visual de Ficheros .cir para Cargar ---
+// --- Bloque 4: Selector Visual de Ficheros .cir en la Carpeta circuitos/ ---
 pub fn abrir_selector_carga(
     commands: &mut Commands,
     pos_cam: Vec2,
 ) {
-    let archivos_cir = listar_archivos_por_ext("cir");
+    asegurar_carpetas();
+    let archivos_cir = listar_archivos_por_ext(CARPETA_CIRCUITOS, "cir");
 
     let ancho_btn = 280.0;
     let alto_btn = 32.0;
@@ -118,7 +132,7 @@ pub fn abrir_selector_carga(
     commands.spawn((
         Sprite {
             color: Color::srgb(0.10, 0.12, 0.16),
-            custom_size: Some(Vec2::new(340.0, total_alto)),
+            custom_size: Some(Vec2::new(360.0, total_alto)),
             ..default()
         },
         Transform::from_xyz(pos_cam.x, pos_cam.y, 20.0),
@@ -128,7 +142,7 @@ pub fn abrir_selector_carga(
         let y_titulo = total_alto / 2.0 - 24.0;
 
         padre.spawn((
-            Text2d::new("ELIGE UN CIRCUITO (.cir) [Esc = Salir]"),
+            Text2d::new("CIRCUITOS EN circuitos/ [Esc = Salir]"),
             TextFont {
                 font_size: bevy::text::FontSize::Px(14.0),
                 ..default()
@@ -139,7 +153,7 @@ pub fn abrir_selector_carga(
 
         if archivos_cir.is_empty() {
             padre.spawn((
-                Text2d::new("No hay ficheros .cir guardados"),
+                Text2d::new("No hay ficheros .cir en circuitos/"),
                 TextFont {
                     font_size: bevy::text::FontSize::Px(15.0),
                     ..default()
@@ -152,6 +166,7 @@ pub fn abrir_selector_carga(
             for (i, nom_archivo) in archivos_cir.iter().enumerate() {
                 let y = inicio_y - (i as f32 * separacion);
                 let centro_mundo = Vec2::new(pos_cam.x, pos_cam.y + y);
+                let ruta_completa = format!("{}/{}", CARPETA_CIRCUITOS, nom_archivo);
 
                 padre.spawn((
                     Sprite {
@@ -161,7 +176,7 @@ pub fn abrir_selector_carga(
                     },
                     Transform::from_xyz(0.0, y, 0.1),
                     BotonArchivoCir {
-                        nombre_archivo: nom_archivo.clone(),
+                        nombre_archivo: ruta_completa,
                         centro_mundo,
                     },
                 ))
@@ -181,9 +196,14 @@ pub fn abrir_selector_carga(
     });
 }
 
-pub fn listar_archivos_por_ext(extension_buscada: &str) -> Vec<String> {
+// Lista los archivos dentro de la carpeta indicada ("circuitos" o "chips")
+pub fn listar_archivos_por_ext(
+    carpeta: &str,
+    extension_buscada: &str,
+) -> Vec<String> {
+    asegurar_carpetas();
     let mut archivos = Vec::new();
-    if let Ok(entradas) = fs::read_dir(".") {
+    if let Ok(entradas) = fs::read_dir(carpeta) {
         for entrada in entradas.flatten() {
             let ruta = entrada.path();
             if ruta.is_file() {
@@ -265,7 +285,7 @@ pub fn gestionar_clic_selector_carga(
     commands.entity(ent_sel).despawn();
 }
 
-// --- Bloque 6: Gestión del Teclado para Guardar (.cir o .chp) ---
+// --- Bloque 6: Gestión del Teclado para Guardar en circuitos/ o chips/ ---
 pub fn gestionar_teclado_archivo(
     keys: Res<ButtonInput<KeyCode>>,
     mut q_dialogo: Query<(Entity, &mut DialogoArchivo)>,
@@ -276,7 +296,11 @@ pub fn gestionar_teclado_archivo(
         return;
     };
 
-    let ext = if dlg.es_chip { ".chp" } else { ".cir" };
+    let (carpeta, ext) = if dlg.es_chip {
+        (CARPETA_CHIPS, ".chp")
+    } else {
+        (CARPETA_CIRCUITOS, ".cir")
+    };
 
     if keys.just_pressed(KeyCode::Escape) {
         commands.entity(ent_dlg).despawn();
@@ -286,13 +310,14 @@ pub fn gestionar_teclado_archivo(
     if keys.just_pressed(KeyCode::Enter) {
         let base = dlg.nombre.trim().to_string();
         if !base.is_empty() {
-            let nombre_final = if base.ends_with(ext) {
+            let nombre_con_ext = if base.ends_with(ext) {
                 base
             } else {
                 format!("{}{}", base, ext)
             };
+            let ruta_final = format!("{}/{}", carpeta, nombre_con_ext);
 
-            commands.spawn(PeticionGuardar(nombre_final));
+            commands.spawn(PeticionGuardar(ruta_final));
         }
         commands.entity(ent_dlg).despawn();
         return;
@@ -357,12 +382,12 @@ pub fn gestionar_teclado_archivo(
 
     if cambiado {
         for mut txt in q_texto.iter_mut() {
-            txt.0 = format!("{}_{}", dlg.nombre, ext);
+            txt.0 = format!("{}/{}_{}", carpeta, dlg.nombre, ext);
         }
     }
 }
 
-// --- Bloque 7: Diálogo para Nombrar Pines con la Tecla N (Fondo Negro / Letra Verde) ---
+// --- Bloque 7: Diálogo para Nombrar Pines con la Tecla N ---
 pub fn gestionar_nombrado_pin(
     keys: Res<ButtonInput<KeyCode>>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
@@ -664,7 +689,7 @@ pub fn procesar_guardado_y_carga(
         return;
     }
 
-    // 3. Procesar entrada al interior de un Chip ([VER])
+    // 3. Procesar entrada al interior de un Chip ([VER]) en la carpeta chips/
     let mut chip_a_inspeccionar = None;
     for (ent, pet) in q_entrar.iter() {
         chip_a_inspeccionar = Some(pet.0.clone());
@@ -672,13 +697,17 @@ pub fn procesar_guardado_y_carga(
     }
 
     if let Some(ruta_chp) = chip_a_inspeccionar {
-        let contenido_chp = fs::read_to_string(&ruta_chp).or_else(|_| {
-            let mayus = ruta_chp
-                .strip_suffix(".chp")
-                .unwrap_or(&ruta_chp)
-                .to_uppercase();
-            fs::read_to_string(format!("{}.chp", mayus))
-        });
+        let nom_base = Path::new(&ruta_chp)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&ruta_chp);
+
+        let ruta_min = format!("{}/{}.chp", CARPETA_CHIPS, nom_base.to_lowercase());
+        let ruta_may = format!("{}/{}.chp", CARPETA_CHIPS, nom_base.to_uppercase());
+
+        let contenido_chp = fs::read_to_string(&ruta_chp)
+            .or_else(|_| fs::read_to_string(&ruta_min))
+            .or_else(|_| fs::read_to_string(&ruta_may));
 
         if let Ok(texto_chip) = contenido_chp {
             let foto_actual = serializar_circuito_a_texto(
@@ -690,10 +719,7 @@ pub fn procesar_guardado_y_carga(
                 &q_pines_in,
                 &q_pines_out,
             );
-            let nombre_chip = ruta_chp
-                .strip_suffix(".chp")
-                .unwrap_or(&ruta_chp)
-                .to_uppercase();
+            let nombre_chip = nom_base.to_uppercase();
 
             pila_inspeccion.niveles.push((nombre_chip, foto_actual));
             historial_undo.estados.clear();
@@ -714,7 +740,7 @@ pub fn procesar_guardado_y_carga(
                 &config,
             );
         } else {
-            println!("No se encontró el archivo del chip: {}", ruta_chp);
+            println!("No se encontró el archivo del chip en chips/: {}", ruta_chp);
         }
         return;
     }
@@ -946,6 +972,7 @@ fn guardar_en_disco(
     q_pines_in: &Query<&PinEntrada>,
     q_pines_out: &Query<&PinSalida>,
 ) {
+    asegurar_carpetas();
     let contenido = serializar_circuito_a_texto(
         q_nodos,
         q_cables,
@@ -963,10 +990,7 @@ fn guardar_en_disco(
     }
 }
 
-// ==========================================
-// Fichero: src/archivo.rs
-// Bloque: Bloque 10: Lógica de Lectura y Reconstrucción en Lienzo
-// ==========================================
+// --- Bloque 10: Lógica de Lectura y Reconstrucción en Lienzo ---
 pub fn reconstruir_circuito_desde_texto(
     contenido: &str,
     q_nodos: &Query<(
@@ -1027,17 +1051,26 @@ pub fn reconstruir_circuito_desde_texto(
             let (salidas_vec, entradas_vec) = if let Some(nom_chip) = 
                 cod.strip_prefix("CHIP:") 
             {
-                let arch_sub_min = format!("{}.chp", nom_chip.to_lowercase());
-                let arch_sub_orig = format!("{}.chp", nom_chip);
+                let arch_sub_min = format!(
+                    "{}/{}.chp", 
+                    CARPETA_CHIPS, 
+                    nom_chip.to_lowercase()
+                );
+                let arch_sub_orig = format!(
+                    "{}/{}.chp", 
+                    CARPETA_CHIPS, 
+                    nom_chip
+                );
                 if let Some(datos_sub) = leer_datos_chip_desde_chp(&arch_sub_min)
                     .or_else(|| leer_datos_chip_desde_chp(&arch_sub_orig)) 
                 {
-                    crear_chip_personalizado(
+                    let (_, s_vec, e_vec) = crear_chip_personalizado(
                         commands, 
                         pos, 
                         datos_sub, 
                         config
-                    )
+                    );
+                    (s_vec, e_vec)
                 } else {
                     (Vec::new(), Vec::new())
                 }
@@ -1172,13 +1205,24 @@ fn cargar_desde_disco(
     println!("Circuito cargado correctamente desde {}", ruta_archivo);
 }
 
-// --- Bloque 11: Lector de Estructura Interna de Chip (.chp) ---
+// --- Bloque 11: Lector de Estructura Interna de Chip desde chips/ ---
 pub fn leer_datos_chip_desde_chp(ruta_archivo: &str) -> Option<DatosChip> {
-    let contenido = fs::read_to_string(ruta_archivo).ok()?;
-    let nombre_limpio = ruta_archivo
-        .strip_suffix(".chp")
-        .unwrap_or(ruta_archivo)
-        .to_uppercase();
+    let nom_limpio_path = Path::new(ruta_archivo)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(ruta_archivo);
+
+    let ruta_en_carpeta = format!(
+        "{}/{}.chp", 
+        CARPETA_CHIPS, 
+        nom_limpio_path.to_lowercase()
+    );
+
+    let contenido = fs::read_to_string(ruta_archivo)
+        .or_else(|_| fs::read_to_string(&ruta_en_carpeta))
+        .ok()?;
+
+    let nombre_limpio = nom_limpio_path.to_uppercase();
 
     let mut nodos = Vec::new();
     let mut cables = Vec::new();
@@ -1215,9 +1259,18 @@ pub fn leer_datos_chip_desde_chp(ruta_archivo: &str) -> Option<DatosChip> {
             }
 
             let sub_chip = if let Some(nom_sub) = cod.strip_prefix("CHIP:") {
-                let arch_sub = format!("{}.chp", nom_sub.to_lowercase());
+                let arch_sub = format!(
+                    "{}/{}.chp", 
+                    CARPETA_CHIPS, 
+                    nom_sub.to_lowercase()
+                );
+                let arch_sub_may = format!(
+                    "{}/{}.chp", 
+                    CARPETA_CHIPS, 
+                    nom_sub
+                );
                 leer_datos_chip_desde_chp(&arch_sub)
-                    .or_else(|| leer_datos_chip_desde_chp(&format!("{}.chp", nom_sub)))
+                    .or_else(|| leer_datos_chip_desde_chp(&arch_sub_may))
                     .map(Box::new)
             } else {
                 None

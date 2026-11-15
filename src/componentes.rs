@@ -140,7 +140,10 @@ pub enum BarraChip {
 #[derive(Component)]
 pub struct PegadoABarra(pub BarraChip);
 
-// --- Bloque 5: Componentes Internos de Control Visual ---
+// ==========================================
+// Fichero: src/componentes.rs
+// Bloque: Bloque 5: Componentes Internos de Control Visual
+// ==========================================
 #[derive(Component)]
 pub struct BotonInterruptor {
     pub estado: bool,
@@ -171,8 +174,12 @@ pub struct SegmentoDisplay(pub usize);
 #[derive(Component)]
 pub struct CentroHueco;
 
+// Guarda el desplazamiento vertical respecto al cursor (0.0 si es 1 sola pieza,
+// o -sep, -2*sep... cuando llevamos una columna de varios chips estilo DLS)
 #[derive(Component)]
-pub struct Arrastrando;
+pub struct Arrastrando {
+    pub offset_y: f32,
+}
 
 #[derive(Component)]
 pub struct CamaraPrincipal;

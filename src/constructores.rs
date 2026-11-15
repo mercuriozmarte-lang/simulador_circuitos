@@ -862,7 +862,7 @@ pub fn crear_chip_personalizado(
     pos: Vec2,
     datos: DatosChip,
     config: &ConfigApp,
-) -> (Vec<Entity>, Vec<Entity>) {
+) -> (Entity, Vec<Entity>, Vec<Entity>) {
     let num_in = datos.pines_entrada.len();
     let num_out = datos.pines_salida.len();
     let max_pines = num_in.max(num_out).max(1);
@@ -891,11 +891,12 @@ pub fn crear_chip_personalizado(
     let nombre_mostrar = datos.nombre.clone();
     let nombres_in = datos.nombres_entrada.clone();
     let nombres_out = datos.nombres_salida.clone();
-    let archivo_chp = format!("{}.chp", datos.nombre.to_lowercase());
+    // Apuntamos siempre a la carpeta chips/
+    let archivo_chp = format!("chips/{}.chp", datos.nombre.to_lowercase());
     let mut salidas_ent = Vec::new();
     let mut entradas_ent = Vec::new();
 
-    commands.spawn((
+    let ent_chip = commands.spawn((
         Sprite {
             color: Color::srgb(0.18, 0.32, 0.48),
             custom_size: Some(Vec2::new(ancho_cuerpo, alto_cuerpo)),
@@ -1042,7 +1043,8 @@ pub fn crear_chip_personalizado(
                 }
             }
         }
-    });
+    })
+    .id();
 
-    (salidas_ent, entradas_ent)
+    (ent_chip, salidas_ent, entradas_ent)
 }
