@@ -53,6 +53,7 @@ fn main() {
                     controlar_camara,
                     actualizar_cuadricula_infinita,
                     gestionar_teclado_archivo,
+                    gestionar_nombrado_pin,
                     gestionar_clic_selector_carga,
                     gestionar_clic_barra_inferior,
                     gestionar_clic_menu,
@@ -93,7 +94,6 @@ fn setup_entorno(
         CamaraPrincipal
     ));
 
-    // Configuramos el grosor de los cables y creamos la cuadrícula en el fondo
     crear_cuadricula_fondo(
         &mut commands, 
         &mut config_store, 
@@ -107,6 +107,7 @@ fn setup_entorno(
         &mut materials,
         Vec2::new(-300.0, 50.0),
         false,
+        "A",
         &config,
     );
     crear_interruptor(
@@ -115,6 +116,7 @@ fn setup_entorno(
         &mut materials,
         Vec2::new(-300.0, -50.0),
         false,
+        "B",
         &config,
     );
 
@@ -150,6 +152,7 @@ fn setup_entorno(
         &mut meshes,
         &mut materials,
         Vec2::new(350.0, 0.0),
+        "OUT",
         &config,
     );
 }

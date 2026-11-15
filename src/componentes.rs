@@ -94,8 +94,12 @@ pub struct DatosChip {
     pub cables: Vec<(usize, usize, usize, usize)>,
     // Índices de los nodos Interruptor pegados a la barra izquierda (de arriba a abajo)
     pub pines_entrada: Vec<usize>,
+    // NUEVO: Etiquetas de texto de cada pin de entrada (ej. "A", "B", "CIN")
+    pub nombres_entrada: Vec<String>,
     // Índices de los nodos LED pegados a la barra derecha (de arriba a abajo)
     pub pines_salida: Vec<usize>,
+    // NUEVO: Etiquetas de texto de cada pin de salida (ej. "SUM", "COUT")
+    pub nombres_salida: Vec<String>,
 }
 
 // Componente que lleva cada bloque Chip instanciado en pantalla
@@ -104,6 +108,14 @@ pub struct InstanciaChip {
     pub datos: DatosChip,
     pub estados_nodos: Vec< Vec<bool> >,
 }
+
+// NUEVO: Almacena el nombre asignado a un Interruptor o LED (ej. "A", "SUM")
+#[derive(Component, Clone, Default)]
+pub struct EtiquetaNodo(pub String);
+
+// NUEVO: Identifica el Text2d hijo que muestra la etiqueta sobre el Interruptor/LED
+#[derive(Component)]
+pub struct TextoEtiquetaNodo;
 
 // Pequeño botón dentro del Chip para entrar a ver su circuito interno
 #[derive(Component)]
@@ -166,7 +178,7 @@ pub struct Arrastrando;
 #[derive(Component)]
 pub struct CamaraPrincipal;
 
-// NUEVO: Identifica el contenedor de la cuadrícula que acompaña a la cámara
+// Identifica el contenedor de la cuadrícula que acompaña a la cámara
 #[derive(Component)]
 pub struct CuadriculaFondo;
 
@@ -245,6 +257,17 @@ pub struct DialogoArchivo {
 #[derive(Component)]
 pub struct TextoInputArchivo;
 
+// NUEVO: Ventana flotante para editar el nombre de un Pin (Interruptor o LED) con tecla N
+#[derive(Component)]
+pub struct DialogoEtiquetaPin {
+    pub nodo_objetivo: Entity,
+    pub texto: String,
+}
+
+// NUEVO: Texto dinámico dentro del cuadro de edición de nombre de Pin
+#[derive(Component)]
+pub struct TextoInputEtiqueta;
+
 // Ventana contenedora de la lista de ficheros .cir encontrados
 #[derive(Component)]
 pub struct SelectorCarga;
@@ -268,10 +291,10 @@ pub struct BotonChipInferior {
     pub x_max: f32,
 }
 
-// NUEVO: Barra superior flotante cuando estamos viendo el interior de un Chip
+// Barra superior flotante cuando estamos viendo el interior de un Chip
 #[derive(Component)]
 pub struct BarraSuperiorInspeccion;
 
-// NUEVO: Botón superior para regresar al circuito anterior de la pila
+// Botón superior para regresar al circuito anterior de la pila
 #[derive(Component)]
 pub struct BotonVolverInspeccion;

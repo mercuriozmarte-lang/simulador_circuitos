@@ -463,67 +463,70 @@ pub fn crear_puerta(
     (ent_salida, entradas)
 }
 
-// --- Bloque 4: Creador de Interruptores ---
+// ==========================================
+// Fichero: src/constructores.rs
+// Bloque: Bloque 4: Creador de Interruptores
+// ==========================================
 pub fn crear_interruptor(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<ColorMaterial>>,
     pos: Vec2,
     estado_inicial: bool,
+    etiqueta: &str,
     config: &ConfigApp,
 ) -> (Option<Entity>, Vec<Entity>) {
-    // Malla triangular apuntando a la derecha
-    let malla_triangulo = meshes.add(Triangle2d::new(
-        Vec2::new(0.0, 15.0),
-        Vec2::new(0.0, -15.0),
-        Vec2::new(18.0, 0.0),
-    ));
-    let mat_cuerpo = materials.add(config.col_puerta);
-    let col_btn = if estado_inicial {
+    let color_inicial = if estado_inicial {
         config.col_estado_1
     } else {
         config.col_estado_0
     };
 
     let mut ent_salida = None;
+    let texto_etq = etiqueta.to_string();
 
     commands.spawn((
+        Mesh2d(meshes.add(Triangle2d::new(
+            Vec2::new(-10.0, 20.0),
+            Vec2::new(-10.0, -20.0),
+            Vec2::new(22.0, 0.0),
+        ))),
+        MeshMaterial2d(materials.add(config.col_puerta)),
         Transform::from_xyz(pos.x, pos.y, 1.0),
-        Visibility::default(),
-        NodoLogico { tipo: TipoPuerta::Interruptor },
+        NodoLogico { 
+            tipo: TipoPuerta::Interruptor 
+        },
+        EtiquetaNodo(texto_etq.clone()),
     ))
     .with_children(|padre| {
-        // 1. Primer cuadrado (Izquierda): Botón para alternar 0 (Rojo) y 1 (Verde)
+        // Etiqueta con el nombre del pin encima del interruptor (tecla N para editar)
         padre.spawn((
-            Sprite {
-                color: col_btn,
-                custom_size: Some(Vec2::new(26.0, 26.0)),
+            Text2d::new(texto_etq),
+            TextFont {
+                font_size: bevy::text::FontSize::Px(13.0),
                 ..default()
             },
-            Transform::from_xyz(-28.0, 0.0, 0.1),
-            BotonInterruptor { estado: estado_inicial },
+            TextColor(config.col_patilla),
+            Transform::from_xyz(0.0, 28.0, 0.3),
+            TextoEtiquetaNodo,
         ));
 
-        // 2. Segundo cuadrado (Centro, junto al primero): Cuerpo para moverlo
+        // Cuadrado izquierdo interactivo que cambia entre 0 y 1
         padre.spawn((
             Sprite {
-                color: config.col_puerta,
-                custom_size: Some(Vec2::new(30.0, 30.0)),
+                color: color_inicial,
+                custom_size: Some(Vec2::new(24.0, 24.0)),
                 ..default()
             },
-            Transform::from_xyz(0.0, 0.0, 0.0),
+            Transform::from_xyz(-24.0, 0.0, 0.1),
+            BotonInterruptor { 
+                estado: estado_inicial 
+            },
         ));
 
-        // 3. Triángulo (Derecha, pegado al segundo cuadrado): Parte del cuerpo
-        padre.spawn((
-            Mesh2d(malla_triangulo),
-            MeshMaterial2d(mat_cuerpo),
-            Transform::from_xyz(15.0, 0.0, 0.0),
-        ));
-
-        // 4. Conector de Salida en la punta del triángulo
+        // Conector de Salida en la punta derecha del triángulo
         let e_out = padre.spawn(bundle_conector(
-            Vec3::new(33.0, 0.0, 0.2),
+            Vec3::new(22.0, 0.0, 0.1),
             TipoConector::Salida,
             config,
         ))
@@ -537,33 +540,62 @@ pub fn crear_interruptor(
     (ent_salida, Vec::new())
 }
 
-// --- Bloque 5: Creador de LEDs de Salida ---
+// ==========================================
+// Fichero: src/constructores.rs
+// Bloque: Bloque 5: Creador de LEDs
+// ==========================================
 pub fn crear_led(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<ColorMaterial>>,
     pos: Vec2,
+    etiqueta: &str,
     config: &ConfigApp,
 ) -> (Option<Entity>, Vec<Entity>) {
-    // Malla triangular apuntando a la izquierda (hacia el conector de entrada)
-    let malla_triangulo = meshes.add(Triangle2d::new(
-        Vec2::new(0.0, 15.0),
-        Vec2::new(0.0, -15.0),
-        Vec2::new(-18.0, 0.0),
-    ));
-    let mat_cuerpo = materials.add(config.col_puerta);
     let mut entradas = Vec::new();
+    let texto_etq = etiqueta.to_string();
 
     commands.spawn((
+        Mesh2d(meshes.add(Triangle2d::new(
+            Vec2::new(-22.0, 0.0),
+            Vec2::new(10.0, 20.0),
+            Vec2::new(10.0, -20.0),
+        ))),
+        MeshMaterial2d(materials.add(config.col_puerta)),
         Transform::from_xyz(pos.x, pos.y, 1.0),
-        Visibility::default(),
-        NodoLogico { tipo: TipoPuerta::Led },
+        NodoLogico { 
+            tipo: TipoPuerta::Led 
+        },
+        EtiquetaNodo(texto_etq.clone()),
     ))
     .with_children(|padre| {
-        // 1. Conector de Entrada en la punta izquierda del triángulo
+        // Etiqueta con el nombre del pin encima del LED (tecla N para editar)
+        padre.spawn((
+            Text2d::new(texto_etq),
+            TextFont {
+                font_size: bevy::text::FontSize::Px(13.0),
+                ..default()
+            },
+            TextColor(config.col_patilla),
+            Transform::from_xyz(0.0, 28.0, 0.3),
+            TextoEtiquetaNodo,
+        ));
+
+        // Cuadrado luminoso a la derecha
+        padre.spawn((
+            Sprite {
+                color: config.col_estado_0,
+                custom_size: Some(Vec2::new(24.0, 24.0)),
+                ..default()
+            },
+            Transform::from_xyz(24.0, 0.0, 0.1),
+            IndicadorLed,
+        ));
+
+        // Conector de Entrada en la punta izquierda del triángulo
         let e_in = padre.spawn((
             bundle_conector(
-                Vec3::new(-33.0, 0.0, 0.2),
+                Vec3::new(-22.0, 0.0, 0.1),
                 TipoConector::Entrada,
                 config,
             ),
@@ -574,38 +606,12 @@ pub fn crear_led(
         })
         .id();
         entradas.push(e_in);
-
-        // 2. Triángulo (Izquierda, pegado al cuerpo central)
-        padre.spawn((
-            Mesh2d(malla_triangulo),
-            MeshMaterial2d(mat_cuerpo),
-            Transform::from_xyz(-15.0, 0.0, 0.0),
-        ));
-
-        // 3. Cuadrado central: Cuerpo para arrastrar el LED
-        padre.spawn((
-            Sprite {
-                color: config.col_puerta,
-                custom_size: Some(Vec2::new(30.0, 30.0)),
-                ..default()
-            },
-            Transform::from_xyz(0.0, 0.0, 0.0),
-        ));
-
-        // 4. Cuadrado derecho: Bombilla que se ilumina en Rojo (0) o Verde (1)
-        padre.spawn((
-            Sprite {
-                color: config.col_estado_0,
-                custom_size: Some(Vec2::new(26.0, 26.0)),
-                ..default()
-            },
-            Transform::from_xyz(28.0, 0.0, 0.1),
-            IndicadorLed,
-        ));
     });
 
     (None, entradas)
 }
+
+
 
 // --- Bloque 6: Creador de Relojes (Clock) ---
 pub fn crear_reloj(
@@ -871,9 +877,23 @@ pub fn crear_chip_personalizado(
     let num_out = datos.pines_salida.len();
     let max_pines = num_in.max(num_out).max(1);
 
-    // Calculamos el tamaño de la carcasa dejando espacio abajo para el botón [VER]
-    let ancho_texto = (datos.nombre.len() as f32 * 11.0).max(80.0);
-    let ancho_cuerpo = ancho_texto + 30.0;
+    // Calculamos el ancho extra necesario si los pines tienen etiquetas de texto
+    let max_len_in = datos
+        .nombres_entrada
+        .iter()
+        .map(|s| s.len())
+        .max()
+        .unwrap_or(0);
+    let max_len_out = datos
+        .nombres_salida
+        .iter()
+        .map(|s| s.len())
+        .max()
+        .unwrap_or(0);
+    let margen_pines = ((max_len_in + max_len_out) as f32 * 7.5).max(24.0);
+
+    let ancho_texto = (datos.nombre.len() as f32 * 11.0).max(76.0);
+    let ancho_cuerpo = ancho_texto + margen_pines + 36.0;
     let separacion_pines = 24.0;
     let alto_cuerpo = (max_pines as f32 * separacion_pines + 28.0).max(62.0);
 
@@ -889,6 +909,8 @@ pub fn crear_chip_personalizado(
     }
 
     let nombre_mostrar = datos.nombre.clone();
+    let nombres_in = datos.nombres_entrada.clone();
+    let nombres_out = datos.nombres_salida.clone();
     let archivo_chp = format!("{}.chp", datos.nombre.to_lowercase());
     let mut salidas_ent = Vec::new();
     let mut entradas_ent = Vec::new();
@@ -907,7 +929,7 @@ pub fn crear_chip_personalizado(
         },
     ))
     .with_children(|padre| {
-        // 1. Texto con el nombre del Chip ligeramente arriba del centro
+        // 1. Texto con el nombre del Chip en el centro
         padre.spawn((
             Text2d::new(nombre_mostrar),
             TextFont {
@@ -918,7 +940,7 @@ pub fn crear_chip_personalizado(
             Transform::from_xyz(0.0, 9.0, 0.2),
         ));
 
-        // 2. Pequeño botón [VER] en la parte baja del Chip para ver su interior
+        // 2. Pequeño botón [VER] en la parte baja del Chip
         let y_btn = -alto_cuerpo / 2.0 + 12.0;
         padre.spawn((
             Sprite {
@@ -941,7 +963,7 @@ pub fn crear_chip_personalizado(
             ));
         });
 
-        // 3. Conectores de Entrada en el lado izquierdo
+        // 3. Conectores de Entrada y sus etiquetas en el lado izquierdo
         let inicio_in_y = 
             ((num_in.saturating_sub(1)) as f32 * separacion_pines) / 2.0;
         for i in 0..num_in {
@@ -959,9 +981,29 @@ pub fn crear_chip_personalizado(
             })
             .id();
             entradas_ent.push(e_in);
+
+            // Si el pin de entrada tiene nombre, lo escribimos junto a la patilla
+            if let Some(etq) = nombres_in.get(i) {
+                if !etq.is_empty() {
+                    let offset_x = 12.0 + (etq.len() as f32 * 3.5);
+                    padre.spawn((
+                        Text2d::new(etq.clone()),
+                        TextFont {
+                            font_size: bevy::text::FontSize::Px(11.0),
+                            ..default()
+                        },
+                        TextColor(Color::srgb(0.82, 0.92, 1.0)),
+                        Transform::from_xyz(
+                            -ancho_cuerpo / 2.0 + offset_x,
+                            y,
+                            0.25,
+                        ),
+                    ));
+                }
+            }
         }
 
-        // 4. Conectores de Salida en el lado derecho
+        // 4. Conectores de Salida y sus etiquetas en el lado derecho
         let inicio_out_y = 
             ((num_out.saturating_sub(1)) as f32 * separacion_pines) / 2.0;
         for i in 0..num_out {
@@ -979,6 +1021,26 @@ pub fn crear_chip_personalizado(
             })
             .id();
             salidas_ent.push(e_out);
+
+            // Si el pin de salida tiene nombre, lo escribimos junto a la patilla
+            if let Some(etq) = nombres_out.get(i) {
+                if !etq.is_empty() {
+                    let offset_x = 12.0 + (etq.len() as f32 * 3.5);
+                    padre.spawn((
+                        Text2d::new(etq.clone()),
+                        TextFont {
+                            font_size: bevy::text::FontSize::Px(11.0),
+                            ..default()
+                        },
+                        TextColor(Color::srgb(0.82, 0.92, 1.0)),
+                        Transform::from_xyz(
+                            ancho_cuerpo / 2.0 - offset_x,
+                            y,
+                            0.25,
+                        ),
+                    ));
+                }
+            }
         }
     });
 

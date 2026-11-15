@@ -36,3 +36,40 @@ impl Default for ConfigApp {
 }
 
 Ahora lo que ocurre es que veo los hilos (cables) de unión entre elementos demasido finos, casi se confunden con la malla del fondo. Lo mismo, seria conveniente un valor constante y poder cambiarlo para ver que queda mejor.El UNDO repasalo, hace cosas raras, a veces va otra no. La modificación del snap bien y salen arcos por encima de las conexiones y círculos con las conexiones.
+
+---
+Bien. Notas: a) Se pueden poner nombres y salen an los chips en sus patillas y al ver el interior del chip. El problema es que al entrar al interior del chip están las barras verticales de asignación de patillas que son casi del mismo color que las letras, además el fondo es claro, iria bien que por ejemplo en un rectángulo negro, aparecieran las letras con un verde claro, así no habria problemas ni con los fondos claros ni con los oscuros
+b) A la hora de dibujar líneas iria bien que al presionar una tecla (por ejemplo la l) se pudieran dibujar líneas horizontales o verticales de 90 grados.
+c) Las entradas y salidas (interruptores y leds) solo hacen snap en la cuadrícula, no se pueden poner en posiciones intermedias
+d) Seria conveniente que en el fichero main.rs hubiera un texto con las instrucciones del programa (teclas a presionar en cada caso etc.)
+e) Como el programa está creciendo, te propongo dos cosas:
+1->  Crear más ficheros de código para estar más repartido
+2-> Renumerar adecuadamente los bloques para poder identificarlos mejor
+
+No se si todo esto podras hacerlo de golpe...Dimelo
+
+------
+Podemos aplicar las cinco mejoras y la reestructuración modular completa en una sola entrega, dejando todos los ficheros perfectamente numerados por bloques (Regla A) para que puedas actualizar tu carpeta src/ de una pasada limpia.
+
+Resumen de las mejoras implementadas y la nueva arquitectura de 9 ficheros:
+
+a) Etiquetas con rectángulo negro y letras verde claro: En src/constructores.rs, tanto los Interruptores como los LEDs tienen ahora una pastilla negra (FondoEtiquetaNodo) detrás del texto en verde brillante (Color::srgb(0.25, 1.0, 0.35)). Si la etiqueta está vacía, el rectángulo se oculta solo; cuando escribes un nombre con la tecla N, el rectángulo aparece y ajusta su anchura automáticamente al texto.
+
+b) Tecla L para líneas ortogonales de 90°: Mientras trazas un cable o arrastras un codo existente, si mantienes pulsada la tecla L (o Shift), el tramo se bloquea a horizontal o vertical exacto (90°) respecto al punto anterior.
+
+c) Snap fino en Interruptores y LEDs: Hemos añadido paso_snap_io: 5.0 en ConfigApp. Las puertas siguen encajando en la cuadrícula de 50.0, pero los Interruptores y LEDs ahora hacen snap cada 5.0 píxeles, permitiéndote colocarlos en cualquier posición intermedia o alinearlos con las patillas de las puertas (+-15).
+
+d) Manual de instrucciones en src/main.rs: El Bloque 1 de src/main.rs incluye ahora un cuadro completo de documentación con todos los controles de ratón, teclado, chips y archivos.
+
+e) División en 9 ficheros especializados con bloques renumerados:
+
+src/main.rs (Manual de usuario, inicialización y setup)
+src/configuracion.rs (Constantes de medidas, snaps y colores)
+src/componentes.rs (Estados, recursos y componentes ECS)
+src/constructores.rs (Puertas vectoriales, I/O con etiquetas negras/verdes y chips)
+src/camara.rs (NUEVO) (Movimiento Pan y Zoom en lienzo infinito)
+src/menus.rs (NUEVO) (Menú contextual, submenús y barras flotantes UI superior/inferior)
+src/raton.rs (Clics, arrastre con snap diferenciado, bloqueo 90° con L y borrado)
+src/lineas.rs (Cuadrícula infinita, cables con modo ortogonal L, arcos de cruce y soldaduras)
+src/logica.rs (Propagación de cables, evaluación de puertas, sub-chips y relojes)
+src/archivo.rs (Diálogos .cir/.chp, nombrado con tecla N, pila de inspección y Ctrl+Z)

@@ -149,6 +149,7 @@ pub fn gestionar_clic_menu(
                             &mut materials,
                             pos_snap,
                             false,
+                            "",
                             &config,
                         );
                     }
@@ -158,6 +159,7 @@ pub fn gestionar_clic_menu(
                             &mut meshes,
                             &mut materials,
                             pos_snap,
+                            "",
                             &config,
                         );
                     }
@@ -225,6 +227,7 @@ pub fn gestionar_clic_menu(
         commands.entity(ent_sub).despawn();
     }
 }
+
 // ==========================================
 // Fichero: src/raton.rs
 // Bloque: Bloque 2B: Clic en Nodos, Conectores y Codos de Cable
@@ -242,6 +245,7 @@ pub fn detectar_clic_nodo(
         Or<(
             With<MenuContextual>, 
             With<DialogoArchivo>, 
+            With<DialogoEtiquetaPin>,
             With<SelectorCarga>
         )>
     >,
@@ -269,7 +273,6 @@ pub fn detectar_clic_nodo(
     mut commands: Commands,
     config: Res<ConfigApp>,
 ) {
-    // Si mantiene pulsado Espacio, el clic izquierdo se usa para arrastrar la cámara (Pan)
     if keys.pressed(KeyCode::Space) {
         return;
     }
@@ -432,7 +435,6 @@ pub fn detectar_clic_nodo(
         }
     }
 }
-
 // --- Bloque 3: Soltar Ratón, Codos e Imantar a Barras de Chip ---
 pub fn soltar_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
@@ -861,7 +863,7 @@ fn abrir_submenu(
 
 // ==========================================
 // Fichero: src/raton.rs
-// Bloque: Bloque 7: Movimiento (Pan) y Zoom de la Cámara en Lienzo Infinito (NUEVO)
+// Bloque: Bloque 7: Movimiento (Pan) y Zoom de la Cámara en Lienzo Infinito
 // ==========================================
 pub fn controlar_camara(
     time: Res<Time>,
@@ -869,20 +871,21 @@ pub fn controlar_camara(
     keys: Res<ButtonInput<KeyCode>>,
     mut ev_motion: MessageReader<MouseMotion>,
     mut ev_scroll: MessageReader<MouseWheel>,
-    q_dialogo: Query<Entity, With<DialogoArchivo>>,
+    q_dialogos: Query<
+        Entity, 
+        Or<(With<DialogoArchivo>, With<DialogoEtiquetaPin>)>
+    >,
     mut q_cam: Query<&mut Transform, With<CamaraPrincipal>>,
 ) {
     let Ok(mut cam_trf) = q_cam.single_mut() else {
         return;
     };
 
-    // 1. Calcular el delta acumulado del ratón en este frame
     let mut delta_raton = Vec2::ZERO;
     for ev in ev_motion.read() {
         delta_raton += ev.delta;
     }
 
-    // 2. PAN CON RATÓN: Botón central (rueda pulsada) o Espacio + Clic Izquierdo
     let arrastrando_lienzo = buttons.pressed(MouseButton::Middle)
         || (keys.pressed(KeyCode::Space) && buttons.pressed(MouseButton::Left));
 
@@ -892,8 +895,7 @@ pub fn controlar_camara(
         cam_trf.translation.y += delta_raton.y * escala_actual;
     }
 
-    // 3. PAN CON TECLADO: Flechas de dirección y tecla Home para centrar en (0,0)
-    if q_dialogo.is_empty() {
+    if q_dialogos.is_empty() {
         let vel_pan = 500.0 * time.delta_secs() * cam_trf.scale.x;
         if keys.pressed(KeyCode::ArrowLeft) {
             cam_trf.translation.x -= vel_pan;
@@ -907,7 +909,6 @@ pub fn controlar_camara(
         if keys.pressed(KeyCode::ArrowDown) {
             cam_trf.translation.y -= vel_pan;
         }
-        // Tecla Inicio (Home) devuelve la cámara al origen (0, 0) con zoom 1.0
         if keys.just_pressed(KeyCode::Home) {
             cam_trf.translation.x = 0.0;
             cam_trf.translation.y = 0.0;
@@ -915,7 +916,6 @@ pub fn controlar_camara(
         }
     }
 
-    // 4. ZOOM CON LA RUEDA DEL RATÓN (MouseWheel)
     for ev in ev_scroll.read() {
         if ev.y.abs() > 0.001 {
             let factor = if ev.y > 0.0 { 0.90 } else { 1.10 };

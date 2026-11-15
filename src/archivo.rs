@@ -378,6 +378,159 @@ pub fn gestionar_teclado_archivo(
 
 // ==========================================
 // Fichero: src/archivo.rs
+// Bloque: Bloque 6B: Diálogo para Nombrar Pines con la Tecla N
+// ==========================================
+pub fn gestionar_nombrado_pin(
+    keys: Res<ButtonInput<KeyCode>>,
+    q_windows: Query<&Window, With<PrimaryWindow>>,
+    q_camera: Query<
+        (&Camera, &GlobalTransform), 
+        With<CamaraPrincipal>
+    >,
+    q_bloqueos: Query<
+        Entity, 
+        Or<(With<DialogoArchivo>, With<MenuContextual>, With<SelectorCarga>)>
+    >,
+    mut q_dlg_pin: Query<(Entity, &mut DialogoEtiquetaPin)>,
+    mut q_txt_input: Query<
+        &mut Text2d, 
+        (With<TextoInputEtiqueta>, Without<TextoEtiquetaNodo>)
+    >,
+    mut q_nodos_etq: Query<(Entity, &Transform, &Children, &mut EtiquetaNodo)>,
+    mut q_txt_nodo: Query<
+        &mut Text2d, 
+        (With<TextoEtiquetaNodo>, Without<TextoInputEtiqueta>)
+    >,
+    mut commands: Commands,
+    config: Res<ConfigApp>,
+) {
+    // 1. Si el cuadro de diálogo de etiqueta está abierto, procesamos las teclas
+    if let Ok((ent_dlg, mut dlg)) = q_dlg_pin.single_mut() {
+        if keys.just_pressed(KeyCode::Escape) {
+            commands.entity(ent_dlg).despawn();
+            return;
+        }
+
+        if keys.just_pressed(KeyCode::Enter) {
+            let nuevo_nom = dlg.texto.trim().to_uppercase();
+            if let Ok((_, _, hijos, mut etq)) = 
+                q_nodos_etq.get_mut(dlg.nodo_objetivo) 
+            {
+                etq.0 = nuevo_nom.clone();
+                for hijo in hijos.iter() {
+                    if let Ok(mut txt) = q_txt_nodo.get_mut(hijo) {
+                        txt.0 = nuevo_nom.clone();
+                    }
+                }
+            }
+            commands.entity(ent_dlg).despawn();
+            return;
+        }
+
+        let mut cambiado = false;
+        if keys.just_pressed(KeyCode::Backspace) {
+            dlg.texto.pop();
+            cambiado = true;
+        }
+
+        let teclas: [(KeyCode, char); 37] = [
+            (KeyCode::KeyA, 'A'), (KeyCode::KeyB, 'B'), (KeyCode::KeyC, 'C'),
+            (KeyCode::KeyD, 'D'), (KeyCode::KeyE, 'E'), (KeyCode::KeyF, 'F'),
+            (KeyCode::KeyG, 'G'), (KeyCode::KeyH, 'H'), (KeyCode::KeyI, 'I'),
+            (KeyCode::KeyJ, 'J'), (KeyCode::KeyK, 'K'), (KeyCode::KeyL, 'L'),
+            (KeyCode::KeyM, 'M'), (KeyCode::KeyN, 'N'), (KeyCode::KeyO, 'O'),
+            (KeyCode::KeyP, 'P'), (KeyCode::KeyQ, 'Q'), (KeyCode::KeyR, 'R'),
+            (KeyCode::KeyS, 'S'), (KeyCode::KeyT, 'T'), (KeyCode::KeyU, 'U'),
+            (KeyCode::KeyV, 'V'), (KeyCode::KeyW, 'W'), (KeyCode::KeyX, 'X'),
+            (KeyCode::KeyY, 'Y'), (KeyCode::KeyZ, 'Z'), (KeyCode::Digit0, '0'),
+            (KeyCode::Digit1, '1'), (KeyCode::Digit2, '2'), (KeyCode::Digit3, '3'),
+            (KeyCode::Digit4, '4'), (KeyCode::Digit5, '5'), (KeyCode::Digit6, '6'),
+            (KeyCode::Digit7, '7'), (KeyCode::Digit8, '8'), (KeyCode::Digit9, '9'),
+            (KeyCode::Minus, '_'),
+        ];
+
+        for (cod, ch) in teclas.iter() {
+            if keys.just_pressed(*cod) && dlg.texto.len() < 8 {
+                dlg.texto.push(*ch);
+                cambiado = true;
+            }
+        }
+
+        if cambiado {
+            for mut txt in q_txt_input.iter_mut() {
+                txt.0 = format!("{}_", dlg.texto);
+            }
+        }
+        return;
+    }
+
+    // 2. Si pulsa la tecla N con el cursor sobre un Interruptor o LED, abrimos el cuadro
+    if !q_bloqueos.is_empty() || !keys.just_pressed(KeyCode::KeyN) {
+        return;
+    }
+
+    let Ok(window) = q_windows.single() else { return; };
+    let Ok((cam, cam_trf)) = q_camera.single() else { return; };
+    let Some(pos_pantalla) = window.cursor_position() else { return; };
+    let Ok(pos_mundo) = cam.viewport_to_world_2d(cam_trf, pos_pantalla) else {
+        return;
+    };
+    let pos_cam = cam_trf.translation().truncate();
+
+    for (ent_nodo, trf, _, etq) in q_nodos_etq.iter() {
+        let centro = trf.translation.truncate();
+        if pos_mundo.distance(centro) < config.rad_clic_nodo {
+            let actual = etq.0.clone();
+            commands.spawn((
+                Sprite {
+                    color: Color::srgb(0.10, 0.12, 0.16),
+                    custom_size: Some(Vec2::new(380.0, 100.0)),
+                    ..default()
+                },
+                Transform::from_xyz(pos_cam.x, pos_cam.y, 20.0),
+                DialogoEtiquetaPin {
+                    nodo_objetivo: ent_nodo,
+                    texto: actual.clone(),
+                },
+            ))
+            .with_children(|padre| {
+                padre.spawn((
+                    Text2d::new("NOMBRE DEL PIN / CONEXIÓN (Enter = OK, Esc = Salir)"),
+                    TextFont {
+                        font_size: bevy::text::FontSize::Px(13.0),
+                        ..default()
+                    },
+                    TextColor(Color::srgb(0.8, 0.85, 1.0)),
+                    Transform::from_xyz(0.0, 26.0, 0.1),
+                ));
+
+                padre.spawn((
+                    Sprite {
+                        color: Color::srgb(0.05, 0.05, 0.07),
+                        custom_size: Some(Vec2::new(240.0, 36.0)),
+                        ..default()
+                    },
+                    Transform::from_xyz(0.0, -12.0, 0.1),
+                ));
+
+                padre.spawn((
+                    Text2d::new(format!("{}_", actual)),
+                    TextFont {
+                        font_size: bevy::text::FontSize::Px(18.0),
+                        ..default()
+                    },
+                    TextColor(Color::srgb(0.2, 0.95, 0.4)),
+                    Transform::from_xyz(0.0, -12.0, 0.2),
+                    TextoInputEtiqueta,
+                ));
+            });
+            return;
+        }
+    }
+}
+
+// ==========================================
+// Fichero: src/archivo.rs
 // Bloque: Bloque 7: Sistema de Guardado, Carga, Inspección y Ctrl+Z
 // ==========================================
 pub fn procesar_guardado_y_carga(
@@ -399,13 +552,14 @@ pub fn procesar_guardado_y_carga(
         &Children, 
         Option<&PegadoABarra>,
         Option<&InstanciaChip>,
+        Option<&EtiquetaNodo>,
     )>,
     q_cables: Query<(Entity, &Cable)>,
     barras_ui: (
         Query<Entity, With<BarraChip>>,
         Query<Entity, With<BarraInferiorChips>>,
         Query<Entity, With<BarraSuperiorInspeccion>>,
-        Query<Entity, With<DialogoArchivo>>,
+        Query<Entity, Or<(With<DialogoArchivo>, With<DialogoEtiquetaPin>)>>,
     ),
     datos_hijos: (
         Query<&BotonInterruptor>,
@@ -448,7 +602,6 @@ pub fn procesar_guardado_y_carga(
         mut historial_undo
     ) = recursos_historial;
 
-    // Limpiamos cualquier petición antigua de undo
     for ent in q_reg_undo.iter() {
         commands.entity(ent).despawn();
     }
@@ -457,8 +610,6 @@ pub fn procesar_guardado_y_carga(
     let ctrl = keys.pressed(KeyCode::ControlLeft) 
         || keys.pressed(KeyCode::ControlRight);
     if ctrl && keys.just_pressed(KeyCode::KeyZ) && q_dialogo.is_empty() {
-        // El último elemento de `estados` es el estado actual en reposo;
-        // lo descartamos y restauramos el estado inmediatamente anterior.
         if historial_undo.estados.len() >= 2 {
             historial_undo.estados.pop();
             if let Some(estado_previo) = historial_undo.estados.last().cloned() {
@@ -612,8 +763,7 @@ pub fn procesar_guardado_y_carga(
         return;
     }
 
-    // 5. CAPTURA AUTOMÁTICA DE UNDO EN REPOSO:
-    // Solo registramos cuando el usuario NO está arrastrando un nodo/codo ni trazando una línea.
+    // 5. Captura automática de Undo en reposo
     if q_arrastrando.is_empty() 
         && codo_arrastrado.seleccion.is_none() 
         && *estado_app.get() == ModoApp::Edicion 
@@ -637,7 +787,10 @@ pub fn procesar_guardado_y_carga(
     }
 }
 
-// --- Bloque 8: Lógica de Serialización a Texto (con Orden Determinista) ---
+// ==========================================
+// Fichero: src/archivo.rs
+// Bloque: Bloque 8: Lógica de Serialización a Texto (con Etiquetas de Pines)
+// ==========================================
 pub fn serializar_circuito_a_texto(
     q_nodos: &Query<(
         Entity, 
@@ -646,6 +799,7 @@ pub fn serializar_circuito_a_texto(
         &Children, 
         Option<&PegadoABarra>,
         Option<&InstanciaChip>,
+        Option<&EtiquetaNodo>,
     )>,
     q_cables: &Query<(Entity, &Cable)>,
     q_botones: &Query<&BotonInterruptor>,
@@ -657,11 +811,10 @@ pub fn serializar_circuito_a_texto(
     let mut lineas_nodos = Vec::new();
     let mut lista_nodos = Vec::new();
 
-    // Ordenamos los nodos por Entity para que la foto de texto no cambie sola de orden
     let mut nodos_ordenados: Vec<_> = q_nodos.iter().collect();
-    nodos_ordenados.sort_by_key(|(ent, _, _, _, _, _)| *ent);
+    nodos_ordenados.sort_by_key(|(ent, _, _, _, _, _, _)| *ent);
 
-    for (ent_nodo, trf, nodo, hijos, opt_pegado, opt_chip) in nodos_ordenados {
+    for (ent_nodo, trf, nodo, hijos, opt_pegado, opt_chip, opt_etq) in nodos_ordenados {
         let mut estado_bool = 0;
         let mut indice_frec = 1;
         let mut salidas_nodo = Vec::new();
@@ -734,9 +887,11 @@ pub fn serializar_circuito_a_texto(
             }
         };
 
+        let texto_etq = opt_etq.map(|e| e.0.as_str()).unwrap_or("");
+
         let linea = format!(
-            "NODO|{}|{}|{}|{}|{}|{}",
-            cod_tipo, x, y, estado_bool, indice_frec, tag_barra
+            "NODO|{}|{}|{}|{}|{}|{}|{}",
+            cod_tipo, x, y, estado_bool, indice_frec, tag_barra, texto_etq
         );
         lineas_nodos.push(linea);
 
@@ -800,6 +955,7 @@ fn guardar_en_disco(
         &Children, 
         Option<&PegadoABarra>,
         Option<&InstanciaChip>,
+        Option<&EtiquetaNodo>,
     )>,
     q_cables: &Query<(Entity, &Cable)>,
     q_botones: &Query<&BotonInterruptor>,
@@ -825,7 +981,10 @@ fn guardar_en_disco(
     }
 }
 
-// --- Bloque 9: Lógica de Lectura y Reconstrucción en Lienzo ---
+// ==========================================
+// Fichero: src/archivo.rs
+// Bloque: Bloque 9: Lógica de Lectura y Reconstrucción en Lienzo
+// ==========================================
 pub fn reconstruir_circuito_desde_texto(
     contenido: &str,
     q_nodos: &Query<(
@@ -835,6 +994,7 @@ pub fn reconstruir_circuito_desde_texto(
         &Children, 
         Option<&PegadoABarra>,
         Option<&InstanciaChip>,
+        Option<&EtiquetaNodo>,
     )>,
     q_cables: &Query<(Entity, &Cable)>,
     q_barras: &Query<Entity, With<BarraChip>>,
@@ -843,7 +1003,7 @@ pub fn reconstruir_circuito_desde_texto(
     materials: &mut ResMut<Assets<ColorMaterial>>,
     config: &ConfigApp,
 ) {
-    for (ent_nodo, _, _, _, _, _) in q_nodos.iter() {
+    for (ent_nodo, _, _, _, _, _, _) in q_nodos.iter() {
         commands.entity(ent_nodo).despawn();
     }
     for (ent_cable, _) in q_cables.iter() {
@@ -869,6 +1029,11 @@ pub fn reconstruir_circuito_desde_texto(
                 partes[6]
             } else {
                 "LIBRE"
+            };
+            let etq_nodo = if partes.len() >= 8 {
+                partes[7]
+            } else {
+                ""
             };
 
             if tag_barra == "PIN_IN" || tag_barra == "PIN_OUT" {
@@ -918,10 +1083,10 @@ pub fn reconstruir_circuito_desde_texto(
                         commands, meshes, materials, pos, TipoPuerta::Xnor, config
                     ),
                     "INT" => crear_interruptor(
-                        commands, meshes, materials, pos, est, config
+                        commands, meshes, materials, pos, est, etq_nodo, config
                     ),
                     "LED" => crear_led(
-                        commands, meshes, materials, pos, config
+                        commands, meshes, materials, pos, etq_nodo, config
                     ),
                     "CLK" => crear_reloj(
                         commands, meshes, materials, pos, frec, config
@@ -997,6 +1162,7 @@ fn cargar_desde_disco(
         &Children, 
         Option<&PegadoABarra>,
         Option<&InstanciaChip>,
+        Option<&EtiquetaNodo>,
     )>,
     q_cables: &Query<(Entity, &Cable)>,
     q_barras: &Query<Entity, With<BarraChip>>,
@@ -1024,7 +1190,10 @@ fn cargar_desde_disco(
     println!("Circuito cargado correctamente desde {}", ruta_archivo);
 }
 
-// --- Bloque 10: Lector de Estructura Interna de Chip (.chp) ---
+// ==========================================
+// Fichero: src/archivo.rs
+// Bloque: Bloque 10: Lector de Estructura Interna de Chip (.chp) con Nombres de Pines
+// ==========================================
 pub fn leer_datos_chip_desde_chp(ruta_archivo: &str) -> Option<DatosChip> {
     let contenido = fs::read_to_string(ruta_archivo).ok()?;
     let nombre_limpio = ruta_archivo
@@ -1034,8 +1203,8 @@ pub fn leer_datos_chip_desde_chp(ruta_archivo: &str) -> Option<DatosChip> {
 
     let mut nodos = Vec::new();
     let mut cables = Vec::new();
-    let mut entradas_con_y: Vec<(usize, f32)> = Vec::new();
-    let mut salidas_con_y: Vec<(usize, f32)> = Vec::new();
+    let mut entradas_con_y: Vec<(usize, f32, String)> = Vec::new();
+    let mut salidas_con_y: Vec<(usize, f32, String)> = Vec::new();
 
     for linea in contenido.lines() {
         let partes: Vec<&str> = linea.split('|').collect();
@@ -1052,14 +1221,18 @@ pub fn leer_datos_chip_desde_chp(ruta_archivo: &str) -> Option<DatosChip> {
             } else {
                 "LIBRE"
             };
+            let etq = if partes.len() >= 8 {
+                partes[7].to_string()
+            } else {
+                String::new()
+            };
 
             let idx_actual = nodos.len();
 
             if tag == "PIN_IN" || (cod == "INT" && (x - (-500.0)).abs() < 20.0) {
-                entradas_con_y.push((idx_actual, y));
-            }
-            if tag == "PIN_OUT" || (cod == "LED" && (x - 500.0).abs() < 20.0) {
-                salidas_con_y.push((idx_actual, y));
+                entradas_con_y.push((idx_actual, y, etq));
+            } else if tag == "PIN_OUT" || (cod == "LED" && (x - 500.0).abs() < 20.0) {
+                salidas_con_y.push((idx_actual, y, etq));
             }
 
             let sub_chip = if let Some(nom_sub) = cod.strip_prefix("CHIP:") {
@@ -1091,8 +1264,19 @@ pub fn leer_datos_chip_desde_chp(ruta_archivo: &str) -> Option<DatosChip> {
     entradas_con_y.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
     salidas_con_y.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
-    let pines_entrada: Vec<usize> = entradas_con_y.into_iter().map(|(i, _)| i).collect();
-    let pines_salida: Vec<usize> = salidas_con_y.into_iter().map(|(i, _)| i).collect();
+    let mut pines_entrada = Vec::new();
+    let mut nombres_entrada = Vec::new();
+    for (idx, _, nom) in entradas_con_y {
+        pines_entrada.push(idx);
+        nombres_entrada.push(nom);
+    }
+
+    let mut pines_salida = Vec::new();
+    let mut nombres_salida = Vec::new();
+    for (idx, _, nom) in salidas_con_y {
+        pines_salida.push(idx);
+        nombres_salida.push(nom);
+    }
 
     if pines_entrada.is_empty() && pines_salida.is_empty() {
         return None;
@@ -1103,7 +1287,9 @@ pub fn leer_datos_chip_desde_chp(ruta_archivo: &str) -> Option<DatosChip> {
         nodos,
         cables,
         pines_entrada,
+        nombres_entrada,
         pines_salida,
+        nombres_salida,
     })
 }
 
