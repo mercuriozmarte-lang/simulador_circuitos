@@ -36,7 +36,10 @@ pub struct HistorialUndo {
     pub estados: Vec<String>,
 }
 
-// --- Bloque 4: Componentes de Nodos, Etiquetas y Chips ---
+// ==========================================
+// Fichero: src/componentes.rs
+// Bloque: Bloque 4: Componentes de Nodos, Etiquetas y Chips
+// ==========================================
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TipoPuerta {
     And,
@@ -76,10 +79,40 @@ pub struct DatosChip {
     pub nombres_salida: Vec<String>,
 }
 
+// NUEVO: Memoria persistente recursiva para soportar pestillos (D-Latch), Flip-Flops y Registros
+#[derive(Clone, Debug, Default)]
+pub struct EstadoRedChip {
+    pub salidas_nodos: Vec< Vec<bool> >,
+    pub sub_redes: Vec< Option<Box<EstadoRedChip>> >,
+}
+
+impl EstadoRedChip {
+    pub fn nuevo_desde_datos(datos: &DatosChip) -> Self {
+        let mut salidas_nodos = Vec::with_capacity(datos.nodos.len());
+        let mut sub_redes = Vec::with_capacity(datos.nodos.len());
+
+        for n in datos.nodos.iter() {
+            if let Some(sub) = &n.sub_chip {
+                let n_out = sub.pines_salida.len().max(1);
+                salidas_nodos.push(vec![false; n_out]);
+                sub_redes.push(Some(Box::new(Self::nuevo_desde_datos(sub))));
+            } else {
+                salidas_nodos.push(vec![false; 1]);
+                sub_redes.push(None);
+            }
+        }
+
+        Self {
+            salidas_nodos,
+            sub_redes,
+        }
+    }
+}
+
 #[derive(Component, Clone)]
 pub struct InstanciaChip {
     pub datos: DatosChip,
-    pub estados_nodos: Vec< Vec<bool> >,
+    pub memoria: EstadoRedChip,
 }
 
 #[derive(Component, Clone, Default)]

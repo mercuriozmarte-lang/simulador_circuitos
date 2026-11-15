@@ -73,3 +73,8 @@ src/raton.rs (Clics, arrastre con snap diferenciado, bloqueo 90° con L y borrad
 src/lineas.rs (Cuadrícula infinita, cables con modo ortogonal L, arcos de cruce y soldaduras)
 src/logica.rs (Propagación de cables, evaluación de puertas, sub-chips y relojes)
 src/archivo.rs (Diálogos .cir/.chp, nombrado con tecla N, pila de inspección y Ctrl+Z)
+
+--
+Notas: a) El color de las barras donde se ponen las entradas y salidas es muy oscuro, deberia haber una opción para poder cambiarlo en el fichero de configuracion.rs, por ahora pon un gris clarito.
+b) En el programa DLS se pueden poner varios chips iguales a la vez, no se cual es el proceso ¿como podriamos hacer eso?
+c) La parte 2 del tutorial en YT de DLS es este:  https://www.youtube.com/watch?v=Q4HaZWrZ0F0&list=PLzTuuMapW9aD6jQdK8lW40g3E81Zt-gNi&index=2   ¿podrias generar los ficheros de los circuitos y chips?

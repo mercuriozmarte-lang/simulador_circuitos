@@ -5,7 +5,10 @@
 // --- Bloque 1: Importaciones ---
 use bevy::prelude::*;
 
-// --- Bloque 2: Estructura de Configuración Global ---
+// ==========================================
+// Fichero: src/configuracion.rs
+// Bloque: Bloque 2: Estructura de Configuración Global
+// ==========================================
 #[derive(Resource)]
 pub struct ConfigApp {
     // Dimensiones geométricas
@@ -20,9 +23,11 @@ pub struct ConfigApp {
     pub paso_snap_io: f32,
     pub paso_snap_codo: f32,
 
-    // Paleta de colores del lienzo y puertas
+    // Paleta de colores del lienzo, barras y puertas
     pub col_fondo: Color,
     pub col_cuadricula: Color,
+    // NUEVO: Color gris claro configurable para las barras laterales de pines (IN / OUT CHIP)
+    pub col_barra_io: Color,
     pub col_puerta: Color,
     pub col_patilla: Color,
     pub col_con_hueco: Color,
@@ -37,7 +42,10 @@ pub struct ConfigApp {
     pub col_estado_1: Color,
 }
 
-// --- Bloque 3: Valores por Defecto ---
+// ==========================================
+// Fichero: src/configuracion.rs
+// Bloque: Bloque 3: Valores por Defecto
+// ==========================================
 impl Default for ConfigApp {
     fn default() -> Self {
         Self {
@@ -56,6 +64,8 @@ impl Default for ConfigApp {
 
             col_fondo: Color::srgb(0.90, 0.92, 0.96),
             col_cuadricula: Color::srgb(0.76, 0.79, 0.84),
+            // Gris clarito para las barras donde se colocan las entradas y salidas
+            col_barra_io: Color::srgb(0.75, 0.78, 0.83),
             col_puerta: Color::srgb(0.35, 0.38, 0.44),
             col_patilla: Color::srgb(0.08, 0.08, 0.10),
             col_con_hueco: Color::srgb(0.60, 0.62, 0.66),

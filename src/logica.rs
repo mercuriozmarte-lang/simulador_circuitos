@@ -31,8 +31,10 @@ pub fn propagar_cables(
         }
     }
 }
-
-// --- Bloque 3: Evaluación de Puertas Lógicas, Displays y Chips ---
+// ==========================================
+// Fichero: src/logica.rs
+// Bloque: Bloque 3: Evaluación de Puertas Lógicas, Displays y Chips
+// ==========================================
 pub fn evaluar_puertas(
     mut q_puertas: Query<
         (Entity, &NodoLogico, Option<&mut InstanciaChip>), 
@@ -105,12 +107,12 @@ pub fn evaluar_puertas(
             if let Some(mut chip) = opt_chip {
                 let InstanciaChip { 
                     ref datos, 
-                    ref mut estados_nodos 
+                    ref mut memoria 
                 } = *chip;
 
                 let resultados_chip = simular_red_chip(
                     datos,
-                    estados_nodos,
+                    memoria,
                     &entradas_ordenadas,
                 );
 
@@ -235,36 +237,40 @@ pub fn evaluar_puertas(
     }
 }
 
-// --- Bloque 4: Simulación Recursiva de Chips y Decodificador Hexadecimal ---
+// ==========================================
+// Fichero: src/logica.rs
+// Bloque: Bloque 4: Simulación Recursiva con Memoria Persistente (Flip-Flops y Registros)
+// ==========================================
 fn simular_red_chip(
     datos: &DatosChip,
-    estados_nodos: &mut Vec< Vec<bool> >,
+    memoria: &mut EstadoRedChip,
     entradas_ext: &[bool],
 ) -> Vec<bool> {
     let n_nodos = datos.nodos.len();
-    if estados_nodos.len() != n_nodos {
-        *estados_nodos = vec![vec![false; 1]; n_nodos];
+    if memoria.salidas_nodos.len() != n_nodos {
+        *memoria = EstadoRedChip::nuevo_desde_datos(datos);
     }
 
     for (idx_pin, &idx_nodo) in datos.pines_entrada.iter().enumerate() {
         let v = entradas_ext.get(idx_pin).copied().unwrap_or(false);
-        if idx_nodo < estados_nodos.len() {
-            if estados_nodos[idx_nodo].is_empty() {
-                estados_nodos[idx_nodo].push(v);
+        if idx_nodo < memoria.salidas_nodos.len() {
+            if memoria.salidas_nodos[idx_nodo].is_empty() {
+                memoria.salidas_nodos[idx_nodo].push(v);
             } else {
-                estados_nodos[idx_nodo][0] = v;
+                memoria.salidas_nodos[idx_nodo][0] = v;
             }
         }
     }
 
-    let pasadas = n_nodos.clamp(2, 12);
+    // 4 pasadas permiten estabilizar pestillos SR/D-Latch sin bloquear bucles
+    let pasadas = 4;
     for _ in 0..pasadas {
         for i in 0..n_nodos {
             if datos.pines_entrada.contains(&i) {
                 continue;
             }
 
-            let mut in_pines = vec![false; 8];
+            let mut in_pines = vec![false; 12];
             let mut tiene_cables = false;
 
             for &(orig, pin_out, dest, pin_in) in datos.cables.iter() {
@@ -273,7 +279,8 @@ fn simular_red_chip(
                     if pin_in >= in_pines.len() {
                         in_pines.resize(pin_in + 1, false);
                     }
-                    let val_cable = estados_nodos
+                    let val_cable = memoria
+                        .salidas_nodos
                         .get(orig)
                         .and_then(|salidas| salidas.get(pin_out))
                         .copied()
@@ -284,10 +291,20 @@ fn simular_red_chip(
 
             let cod = datos.nodos[i].cod_tipo.as_str();
 
-            if let Some(sub) = &datos.nodos[i].sub_chip {
-                let mut mem_sub = vec![vec![false; 1]; sub.nodos.len()];
-                let sal_sub = simular_red_chip(sub, &mut mem_sub, &in_pines);
-                estados_nodos[i] = sal_sub;
+            if let Some(sub_datos) = &datos.nodos[i].sub_chip {
+                if memoria.sub_redes[i].is_none() {
+                    memoria.sub_redes[i] = Some(Box::new(
+                        EstadoRedChip::nuevo_desde_datos(sub_datos)
+                    ));
+                }
+                if let Some(sub_mem) = &mut memoria.sub_redes[i] {
+                    let sal_sub = simular_red_chip(
+                        sub_datos, 
+                        sub_mem, 
+                        &in_pines
+                    );
+                    memoria.salidas_nodos[i] = sal_sub;
+                }
                 continue;
             }
 
@@ -306,17 +323,18 @@ fn simular_red_chip(
                 _ => false,
             };
 
-            if estados_nodos[i].is_empty() {
-                estados_nodos[i].push(res);
+            if memoria.salidas_nodos[i].is_empty() {
+                memoria.salidas_nodos[i].push(res);
             } else {
-                estados_nodos[i][0] = res;
+                memoria.salidas_nodos[i][0] = res;
             }
         }
     }
 
     let mut salidas_finales = Vec::with_capacity(datos.pines_salida.len());
     for &idx_led in datos.pines_salida.iter() {
-        let v = estados_nodos
+        let v = memoria
+            .salidas_nodos
             .get(idx_led)
             .and_then(|s| s.first())
             .copied()

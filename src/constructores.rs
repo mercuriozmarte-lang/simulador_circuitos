@@ -782,15 +782,21 @@ pub fn crear_display(
     (None, entradas)
 }
 
-// --- Bloque 9: Creador de Barras Laterales para Pines de Chip ---
-pub fn crear_barras_chip(commands: &mut Commands) {
-    let ancho = 16.0;
-    let alto = 560.0;
+// ==========================================
+// Fichero: src/constructores.rs
+// Bloque: Bloque 9: Creador de Barras Laterales para Pines de Chip
+// ==========================================
+pub fn crear_barras_chip(
+    commands: &mut Commands,
+    config: &ConfigApp,
+) {
+    let ancho = 18.0;
+    let alto = 620.0;
     let x_barra = 500.0;
 
     commands.spawn((
         Sprite {
-            color: Color::srgb(0.22, 0.28, 0.38),
+            color: config.col_barra_io,
             custom_size: Some(Vec2::new(ancho, alto)),
             ..default()
         },
@@ -799,19 +805,27 @@ pub fn crear_barras_chip(commands: &mut Commands) {
     ))
     .with_children(|padre| {
         padre.spawn((
-            Text2d::new("IN CHIP"),
-            TextFont {
-                font_size: bevy::text::FontSize::Px(14.0),
+            Sprite {
+                color: config.col_etiqueta_fondo,
+                custom_size: Some(Vec2::new(76.0, 22.0)),
                 ..default()
             },
-            TextColor(Color::srgb(0.5, 0.7, 1.0)),
             Transform::from_xyz(0.0, alto / 2.0 + 18.0, 0.1),
+        ));
+        padre.spawn((
+            Text2d::new("IN CHIP"),
+            TextFont {
+                font_size: bevy::text::FontSize::Px(13.0),
+                ..default()
+            },
+            TextColor(config.col_etiqueta_texto),
+            Transform::from_xyz(0.0, alto / 2.0 + 18.0, 0.2),
         ));
     });
 
     commands.spawn((
         Sprite {
-            color: Color::srgb(0.22, 0.38, 0.28),
+            color: config.col_barra_io,
             custom_size: Some(Vec2::new(ancho, alto)),
             ..default()
         },
@@ -820,18 +834,29 @@ pub fn crear_barras_chip(commands: &mut Commands) {
     ))
     .with_children(|padre| {
         padre.spawn((
-            Text2d::new("OUT CHIP"),
-            TextFont {
-                font_size: bevy::text::FontSize::Px(14.0),
+            Sprite {
+                color: config.col_etiqueta_fondo,
+                custom_size: Some(Vec2::new(84.0, 22.0)),
                 ..default()
             },
-            TextColor(Color::srgb(0.5, 1.0, 0.7)),
             Transform::from_xyz(0.0, alto / 2.0 + 18.0, 0.1),
+        ));
+        padre.spawn((
+            Text2d::new("OUT CHIP"),
+            TextFont {
+                font_size: bevy::text::FontSize::Px(13.0),
+                ..default()
+            },
+            TextColor(config.col_etiqueta_texto),
+            Transform::from_xyz(0.0, alto / 2.0 + 18.0, 0.2),
         ));
     });
 }
 
-// --- Bloque 10: Creador de Chips Personalizados (con Etiquetas de Pines) ---
+// ==========================================
+// Fichero: src/constructores.rs
+// Bloque: Bloque 10: Creador de Chips Personalizados (con Etiquetas de Pines)
+// ==========================================
 pub fn crear_chip_personalizado(
     commands: &mut Commands,
     pos: Vec2,
@@ -861,15 +886,7 @@ pub fn crear_chip_personalizado(
     let separacion_pines = 24.0;
     let alto_cuerpo = (max_pines as f32 * separacion_pines + 28.0).max(62.0);
 
-    let mut estados_nodos = Vec::with_capacity(datos.nodos.len());
-    for n in datos.nodos.iter() {
-        let num_salidas = if let Some(sub) = &n.sub_chip {
-            sub.pines_salida.len().max(1)
-        } else {
-            1
-        };
-        estados_nodos.push(vec![false; num_salidas]);
-    }
+    let memoria = EstadoRedChip::nuevo_desde_datos(&datos);
 
     let nombre_mostrar = datos.nombre.clone();
     let nombres_in = datos.nombres_entrada.clone();
@@ -888,7 +905,7 @@ pub fn crear_chip_personalizado(
         NodoLogico { tipo: TipoPuerta::Chip },
         InstanciaChip {
             datos,
-            estados_nodos,
+            memoria,
         },
     ))
     .with_children(|padre| {
@@ -942,7 +959,6 @@ pub fn crear_chip_personalizado(
             .id();
             entradas_ent.push(e_in);
 
-            // Etiqueta de pin de entrada en rectángulo negro con letras verde claro
             if let Some(etq) = nombres_in.get(i) {
                 if !etq.is_empty() {
                     let w_etq = (etq.len() as f32 * 7.5 + 8.0).max(20.0);
@@ -994,7 +1010,6 @@ pub fn crear_chip_personalizado(
             .id();
             salidas_ent.push(e_out);
 
-            // Etiqueta de pin de salida en rectángulo negro con letras verde claro
             if let Some(etq) = nombres_out.get(i) {
                 if !etq.is_empty() {
                     let w_etq = (etq.len() as f32 * 7.5 + 8.0).max(20.0);

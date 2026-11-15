@@ -963,7 +963,10 @@ fn guardar_en_disco(
     }
 }
 
-// --- Bloque 10: Lógica de Lectura y Reconstrucción en Lienzo ---
+// ==========================================
+// Fichero: src/archivo.rs
+// Bloque: Bloque 10: Lógica de Lectura y Reconstrucción en Lienzo
+// ==========================================
 pub fn reconstruir_circuito_desde_texto(
     contenido: &str,
     q_nodos: &Query<(
@@ -1123,7 +1126,7 @@ pub fn reconstruir_circuito_desde_texto(
 
     if necesita_barras {
         if q_barras.is_empty() {
-            crear_barras_chip(commands);
+            crear_barras_chip(commands, config);
         }
     } else {
         for ent_b in q_barras.iter() {

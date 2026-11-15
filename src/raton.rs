@@ -1,8 +1,7 @@
 // ==========================================
 // Fichero: src/raton.rs
+// Bloque: Bloque 1: Importaciones
 // ==========================================
-
-// --- Bloque 1: Importaciones ---
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use crate::componentes::*;
@@ -10,8 +9,19 @@ use crate::configuracion::ConfigApp;
 use crate::menus::abrir_menu_contextual;
 use crate::lineas::ajustar_ortogonal_90;
 use crate::archivo::PeticionEntrarChip;
+use crate::{
+    crear_puerta,
+    crear_interruptor,
+    crear_led,
+    crear_reloj,
+    crear_display,
+    crear_chip_personalizado,
+};
 
-// --- Bloque 2: Detectar Clic Izquierdo en Nodos, Conectores y Codos ---
+// ==========================================
+// Fichero: src/raton.rs
+// Bloque: Bloque 2: Detectar Clic Izquierdo y Tecla D (Duplicar Pieza)
+// ==========================================
 pub fn detectar_clic_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -29,7 +39,10 @@ pub fn detectar_clic_nodo(
             With<SelectorCarga>
         )>
     >,
-    q_nodos: Query<(Entity, &Transform), With<NodoLogico>>,
+    q_nodos: Query<
+        (Entity, &Transform, &NodoLogico, Option<&InstanciaChip>), 
+        With<NodoLogico>
+    >,
     q_conectores: Query<
         (Entity, &GlobalTransform, &TipoConector)
     >,
@@ -50,24 +63,19 @@ pub fn detectar_clic_nodo(
     mut estado_linea: ResMut<EstadoCrearLinea>,
     mut codo_arrastrado: ResMut<CodoArrastrado>,
     mut next_state: ResMut<NextState<ModoApp>>,
-    mut commands: Commands,
+    mut recursos_render: (
+         Commands,
+        ResMut<Assets<Mesh>>,
+        ResMut<Assets<ColorMaterial>>,
+    ),
     config: Res<ConfigApp>,
 ) {
-    if keys.pressed(KeyCode::Space) {
-        return;
-    }
-
-    if !buttons.just_pressed(MouseButton::Left) {
-        return;
-    }
-
     if !q_ui_abierta.is_empty() {
         return;
     }
 
     let Ok(window) = q_windows.single() else { return; };
     let Ok((cam, cam_trf)) = q_camera.single() else { return; };
-
     let Some(pos_pantalla) = window.cursor_position() else {
         return;
     };
@@ -77,6 +85,92 @@ pub fn detectar_clic_nodo(
     ) else {
         return;
     };
+
+    let (
+        ref mut commands, 
+        ref mut meshes, 
+        ref mut materials
+    ) = recursos_render;
+
+    // ATAJO TECLA [ D ]: Duplicar cualquier Puerta, I/O o Chip bajo el cursor
+    if keys.just_pressed(KeyCode::KeyD) {
+        for (_, trf, nodo, opt_chip) in q_nodos.iter() {
+            let centro = trf.translation.truncate();
+            if pos_mundo.distance(centro) < config.rad_clic_nodo {
+                let nueva_pos = Vec2::new(centro.x, centro.y - 100.0);
+                match nodo.tipo {
+                    TipoPuerta::And
+                    | TipoPuerta::Or
+                    | TipoPuerta::Not
+                    | TipoPuerta::Nand
+                    | TipoPuerta::Nor
+                    | TipoPuerta::Xor
+                    | TipoPuerta::Xnor => {
+                        crear_puerta(
+                            commands,
+                            meshes,
+                            materials,
+                            nueva_pos,
+                            nodo.tipo,
+                            &config,
+                        );
+                    }
+                    TipoPuerta::Interruptor => {
+                        crear_interruptor(
+                            commands,
+                            meshes,
+                            materials,
+                            nueva_pos,
+                            false,
+                            "",
+                            &config,
+                        );
+                    }
+                    TipoPuerta::Led => {
+                        crear_led(
+                            commands,
+                            meshes,
+                            materials,
+                            nueva_pos,
+                            "",
+                            &config,
+                        );
+                    }
+                    TipoPuerta::Reloj => {
+                        crear_reloj(
+                            commands,
+                            meshes,
+                            materials,
+                            nueva_pos,
+                            1,
+                            &config,
+                        );
+                    }
+                    TipoPuerta::Display4Bits => {
+                        crear_display(commands, nueva_pos, true, &config);
+                    }
+                    TipoPuerta::Display7Seg => {
+                        crear_display(commands, nueva_pos, false, &config);
+                    }
+                    TipoPuerta::Chip => {
+                        if let Some(chip) = opt_chip {
+                            crear_chip_personalizado(
+                                commands,
+                                nueva_pos,
+                                chip.datos.clone(),
+                                &config,
+                            );
+                        }
+                    }
+                }
+                return;
+            }
+        }
+    }
+
+    if keys.pressed(KeyCode::Space) || !buttons.just_pressed(MouseButton::Left) {
+        return;
+    }
 
     if pos_pantalla.y >= (window.height() - 56.0) {
         return;
@@ -116,7 +210,6 @@ pub fn detectar_clic_nodo(
             }
         }
 
-        // Si mantiene pulsada la tecla L, forzamos ángulo de 90° respecto al punto previo
         let pto_previo = estado_linea
             .puntos_intermedios
             .last()
@@ -217,7 +310,7 @@ pub fn detectar_clic_nodo(
     }
 
     // 3. Prioridad 3: Clic en el cuerpo del nodo para arrastrarlo
-    for (entidad, trf) in q_nodos.iter() {
+    for (entidad, trf, _, _) in q_nodos.iter() {
         let centro_nodo = trf.translation.truncate();
         if pos_mundo.distance(centro_nodo) < config.rad_clic_nodo {
             commands.entity(entidad).insert(Arrastrando);

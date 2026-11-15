@@ -24,7 +24,10 @@ use crate::{
     crear_chip_personalizado,
 };
 
-// --- Bloque 2: Gestión de Hover y Clics en el Menú Contextual ---
+// ==========================================
+// Fichero: src/menus.rs
+// Bloque: Bloque 2: Gestión de Hover y Clics en el Menú Contextual
+// ==========================================
 pub fn gestionar_clic_menu(
     buttons: Res<ButtonInput<MouseButton>>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
@@ -79,7 +82,6 @@ pub fn gestionar_clic_menu(
         }
     }
 
-    // 1. HOVER AUTOMÁTICO: Desplegar submenú
     if let Some(AccionMenu::AbrirCategoria(cat)) = accion_bajo_cursor {
         let mut ya_abierto = false;
         for (ent_sub, sub) in q_submenu.iter() {
@@ -96,7 +98,6 @@ pub fn gestionar_clic_menu(
         }
     }
 
-    // 2. CLIC IZQUIERDO
     if !buttons.just_pressed(MouseButton::Left) {
         return;
     }
@@ -197,7 +198,7 @@ pub fn gestionar_clic_menu(
             }
             AccionMenu::AlternarBarrasChip => {
                 if q_barras.is_empty() {
-                    crear_barras_chip(&mut commands);
+                    crear_barras_chip(&mut commands, &config);
                 } else {
                     for ent_b in q_barras.iter() {
                         commands.entity(ent_b).despawn();
@@ -553,9 +554,13 @@ pub fn reconstruir_barra_superior_inspeccion(
     });
 }
 
-// --- Bloque 5: Interacción con las Barras Flotantes UI ---
+// ==========================================
+// Fichero: src/menus.rs
+// Bloque: Bloque 5: Interacción con las Barras Flotantes UI (Soporte Multi-Chip)
+// ==========================================
 pub fn gestionar_clic_barras_ui(
     buttons: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
     q_camera: Query<&Transform, With<CamaraPrincipal>>,
     mut q_botones_inf: Query<
@@ -592,7 +597,10 @@ pub fn gestionar_clic_barras_ui(
         }
     }
 
-    // 2. Clic en los botones de la barra inferior de Chips
+    // 2. Clic en los botones de la barra inferior de Chips:
+    //    - Clic normal : Saca 1 chip.
+    //    - Ctrl + Clic : Saca 2 chips apilados en columna.
+    //    - Shift + Clic: Saca 4 chips apilados en columna (estilo DLS).
     let alto_ventana = window.height();
     let dentro_franja_y = pos_cursor.y >= (alto_ventana - 56.0) 
         && pos_cursor.y <= (alto_ventana - 10.0);
@@ -601,6 +609,19 @@ pub fn gestionar_clic_barras_ui(
         .single()
         .map(|t| t.translation.truncate())
         .unwrap_or(Vec2::ZERO);
+
+    let shift = keys.pressed(KeyCode::ShiftLeft) 
+        || keys.pressed(KeyCode::ShiftRight);
+    let ctrl = keys.pressed(KeyCode::ControlLeft) 
+        || keys.pressed(KeyCode::ControlRight);
+
+    let cantidad = if shift {
+        4
+    } else if ctrl {
+        2
+    } else {
+        1
+    };
 
     for (btn_chip, mut color_fondo) in q_botones_inf.iter_mut() {
         let dentro_x = pos_cursor.x >= btn_chip.x_min 
@@ -615,16 +636,30 @@ pub fn gestionar_clic_barras_ui(
                     leer_datos_chip_desde_chp(&btn_chip.archivo_chp) 
                 {
                     let paso = config.paso_snap_puerta;
-                    let pos_snap = Vec2::new(
-                        (centro_cam.x / paso).round() * paso,
-                        (centro_cam.y / paso).round() * paso,
-                    );
-                    crear_chip_personalizado(
-                        &mut commands,
-                        pos_snap,
-                        datos,
-                        &config,
-                    );
+                    let max_pines = datos
+                        .pines_entrada
+                        .len()
+                        .max(datos.pines_salida.len())
+                        .max(1);
+                    let alto_est = (max_pines as f32 * 24.0 + 36.0).max(100.0);
+                    let sep_vertical = (alto_est / paso).ceil() * paso;
+
+                    let inicio_y = centro_cam.y 
+                        + ((cantidad as f32 - 1.0) * sep_vertical) / 2.0;
+
+                    for i in 0..cantidad {
+                        let y_i = inicio_y - (i as f32 * sep_vertical);
+                        let pos_snap = Vec2::new(
+                            (centro_cam.x / paso).round() * paso,
+                            (y_i / paso).round() * paso,
+                        );
+                        crear_chip_personalizado(
+                            &mut commands,
+                            pos_snap,
+                            datos.clone(),
+                            &config,
+                        );
+                    }
                 }
             } else {
                 *color_fondo = BackgroundColor(
