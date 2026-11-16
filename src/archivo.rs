@@ -1,8 +1,7 @@
 // ==========================================
 // Fichero: src/archivo.rs
+// Bloque: Bloque 1: Importaciones y Constantes de Carpetas
 // ==========================================
-
-// --- Bloque 1: Importaciones y Constantes de Carpetas ---
 use std::fs;
 use std::path::Path;
 use bevy::prelude::*;
@@ -19,7 +18,7 @@ use crate::{
     crear_led,
     crear_reloj,
     crear_display,
-    crear_barras_chip,
+    crear_barras_chip_con_dimensiones,
     crear_chip_personalizado,
     ancho_caja_etiqueta,
 };
@@ -1026,7 +1025,10 @@ fn guardar_en_disco(
     }
 }
 
-// --- Bloque 10: Lógica de Lectura y Reconstrucción en Lienzo ---
+// ==========================================
+// Fichero: src/archivo.rs
+// Bloque: Bloque 10: Lógica de Lectura y Reconstrucción en Lienzo
+// ==========================================
 pub fn reconstruir_circuito_desde_texto(
     contenido: &str,
     q_nodos: &Query<(
@@ -1051,8 +1053,14 @@ pub fn reconstruir_circuito_desde_texto(
     for (ent_cable, _) in q_cables.iter() {
         commands.entity(ent_cable).despawn();
     }
+    for ent_b in q_barras.iter() {
+        commands.entity(ent_b).despawn();
+    }
 
     let mut necesita_barras = false;
+    let mut x_barra_izq: Option<f32> = None;
+    let mut x_barra_der: Option<f32> = None;
+    let mut max_abs_y: f32 = 400.0;
     let mut conectores_creados: Vec<(Vec<Entity>, Vec<Entity>)> = Vec::new();
 
     for linea in contenido.lines() {
@@ -1078,8 +1086,14 @@ pub fn reconstruir_circuito_desde_texto(
                 ""
             };
 
-            if tag_barra == "PIN_IN" || tag_barra == "PIN_OUT" {
+            if tag_barra == "PIN_IN" {
                 necesita_barras = true;
+                x_barra_izq = Some(x);
+                max_abs_y = max_abs_y.max(y.abs() + 80.0);
+            } else if tag_barra == "PIN_OUT" {
+                necesita_barras = true;
+                x_barra_der = Some(x);
+                max_abs_y = max_abs_y.max(y.abs() + 80.0);
             }
 
             let pos = Vec2::new(x, y);
@@ -1194,13 +1208,16 @@ pub fn reconstruir_circuito_desde_texto(
     }
 
     if necesita_barras {
-        if q_barras.is_empty() {
-            crear_barras_chip(commands, config);
-        }
-    } else {
-        for ent_b in q_barras.iter() {
-            commands.entity(ent_b).despawn();
-        }
+        let x_izq = x_barra_izq.unwrap_or(-500.0);
+        let x_der = x_barra_der.unwrap_or(500.0);
+        let alto_barras = (max_abs_y * 2.0).max(800.0);
+        crear_barras_chip_con_dimensiones(
+            commands, 
+            config, 
+            x_izq, 
+            x_der, 
+            alto_barras
+        );
     }
 }
 

@@ -39,10 +39,21 @@ pub struct HistorialUndo {
     pub estados: Vec<String>,
 }
 
-// NUEVO: Controla el desplazamiento horizontal (scroll) de los botones de la barra inferior
 #[derive(Resource, Default)]
 pub struct DesplazamientoBarraChips {
     pub indice_inicio: usize,
+}
+
+// NUEVO: Controla qué barra lateral estamos moviendo en X o estirando en alto (Y)
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ModoAjusteBarra {
+    MoverHorizontal,
+    CambiarAltura,
+}
+
+#[derive(Resource, Default)]
+pub struct EstadoArrastreBarra {
+    pub activo: Option<(BarraChip, ModoAjusteBarra)>,
 }
 
 // ==========================================
@@ -183,12 +194,22 @@ pub struct SegmentoDisplay(pub usize);
 #[derive(Component)]
 pub struct CentroHueco;
 
-// Guarda el desplazamiento vertical respecto al cursor (0.0 si es 1 sola pieza,
-// o -sep, -2*sep... cuando llevamos una columna de varios chips estilo DLS)
 #[derive(Component)]
 pub struct Arrastrando {
     pub offset_y: f32,
 }
+
+// NUEVO: Asa en el extremo superior de la barra para cambiar su longitud (altura)
+#[derive(Component)]
+pub struct AsaAltoBarra(pub BarraChip);
+
+// NUEVO: Asa en el extremo inferior de la barra para moverla a izquierda/derecha
+#[derive(Component)]
+pub struct AsaMoverBarra(pub BarraChip);
+
+// NUEVO: Cartel informativo sobre el extremo superior de la barra
+#[derive(Component)]
+pub struct EtiquetaSuperiorBarra;
 
 #[derive(Component)]
 pub struct CamaraPrincipal;
@@ -196,7 +217,10 @@ pub struct CamaraPrincipal;
 #[derive(Component)]
 pub struct CuadriculaFondo;
 
+// ==========================================
+// Fichero: src/componentes.rs
 // --- Bloque 6: Componentes de Conectores y Cables ---
+// ==========================================
 #[derive(Component, PartialEq, Eq, Clone, Copy)]
 pub enum TipoConector {
     Entrada,

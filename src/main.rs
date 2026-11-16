@@ -27,25 +27,34 @@
 //        * Puertas / Chips            : Hacen snap a la cuadrícula (50px).
 //        * Interruptores / LEDs       : Hacen snap fino (5px) e imantan a barras.
 //
-// 3. TRAZADO DE CABLES Y CODOS (MODO 90 GRADOS):
+// 3. AJUSTE DE LAS BARRAS DE PINES (IN CHIP / OUT CHIP):
+//    - Asa Inferior [< MOVER >]       : Arrastra con Clic Izquierdo para mover
+//                                       la barra horizontalmente (arrastra
+//                                       consigo los pines ya pegados a ella).
+//    - Asa Superior [^ ALTO v]        : Arrastra con Clic Izquierdo hacia arriba
+//                                       o abajo para alargar o acortar la barra.
+//
+// 4. TRAZADO DE CABLES Y CODOS (MODO 90 GRADOS):
 //    - Clic Izquierdo en Salida (der) : Iniciar el trazado de un nuevo cable.
 //    - Clic Izquierdo en el lienzo    : Añadir una esquina (codo) al cable.
 //    - Mantener Tecla [ L ]           : Forzar línea horizontal o vertical (90°).
 //    - Clic Izquierdo en Entrada (izq): Conectar y finalizar el cable.
+//    - Tecla [ P ] + Clic Derecho     : Insertar un nuevo punto (codo) en mitad
+//                                       de un tramo de cable ya existente.
 //    - Arrastrar un codo con Clic Izq : Mover la esquina del cable (snap de 5px).
 //    - Clic Derecho sobre un codo     : Eliminar solo esa esquina del cable.
 //    - Clic Derecho sobre tramo recto : Eliminar el cable completo.
 //
-// 4. NOMBRADO DE CONEXIONES / PINES:
+// 5. NOMBRADO DE CONEXIONES / PINES:
 //    - Tecla [ N ] sobre Interruptor  : Abrir cuadro para escribir el nombre del
 //      o sobre un LED                   pin (ej: A, B, CIN, SUM).
 //
-// 5. CARPETAS DE ARCHIVOS (circuitos/ y chips/) E INSPECCIÓN:
+// 6. CARPETAS DE ARCHIVOS (circuitos/ y chips/) E INSPECCIÓN:
 //    - Carpeta "chips/"               : Guarda y carga todos los chips (.chp).
 //    - Carpeta "circuitos/"           : Guarda y carga los circuitos (.cir).
 //    - Botón [ VER ] dentro de un Chip: Entra a inspeccionar/editar el interior.
 //
-// 6. HISTORIAL (DESHACER):
+// 7. HISTORIAL (DESHACER):
 //    - Ctrl + Z                       : Deshacer la última modificación (Undo).
 // ============================================================================
 
@@ -93,6 +102,7 @@ fn main() {
         .insert_resource(config_inicial)
         .init_resource::<EstadoCrearLinea>()
         .init_resource::<CodoArrastrado>()
+        .init_resource::<EstadoArrastreBarra>()
         .init_resource::<PilaInspeccion>()
         .init_resource::<HistorialUndo>()
         .init_resource::<DesplazamientoBarraChips>()
@@ -137,8 +147,6 @@ fn setup_entorno(
     mut commands: Commands,
     q_barra_inf: Query<Entity, With<BarraInferiorChips>>,
     mut config_store: ResMut<GizmoConfigStore>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
     config: Res<ConfigApp>,
 ) {
     commands.spawn((
@@ -146,65 +154,11 @@ fn setup_entorno(
         CamaraPrincipal
     ));
 
+    // Creamos únicamente la cuadrícula infinita y la barra inferior de Chips (lienzo limpio)
     crear_cuadricula_fondo(
         &mut commands, 
         &mut config_store, 
         &config
     );
     reconstruir_barra_inferior_chips(&mut commands, &q_barra_inf, 0);
-
-    crear_interruptor(
-        &mut commands,
-        &mut meshes,
-        &mut materials,
-        Vec2::new(-300.0, 50.0),
-        false,
-        "A",
-        &config,
-    );
-    crear_interruptor(
-        &mut commands,
-        &mut meshes,
-        &mut materials,
-        Vec2::new(-300.0, -50.0),
-        false,
-        "B",
-        &config,
-    );
-
-    crear_puerta(
-        &mut commands,
-        &mut meshes,
-        &mut materials,
-        Vec2::new(-50.0, 50.0), 
-        TipoPuerta::And,
-        &config
-    );
-    
-    crear_puerta(
-        &mut commands,
-        &mut meshes,
-        &mut materials,
-        Vec2::new(150.0, 50.0), 
-        TipoPuerta::Or,
-        &config
-    );
-
-    crear_puerta(
-        &mut commands,
-        &mut meshes,
-        &mut materials,
-        Vec2::new(-50.0, -100.0), 
-        TipoPuerta::Not,
-        &config
-    );
-
-    crear_led(
-        &mut commands,
-        &mut meshes,
-        &mut materials,
-        Vec2::new(350.0, 0.0),
-        "OUT",
-        &config,
-    );
 }

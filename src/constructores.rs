@@ -770,7 +770,10 @@ pub fn crear_reloj(
     (ent_salida, Vec::new())
 }
 
-// --- Bloque 8: Creador de Displays de 7 Segmentos ---
+// ==========================================
+// Fichero: src/constructores.rs
+// Bloque: Bloque 8: Creador de Displays de 7 Segmentos (con Pin S de Signo Negativo)
+// ==========================================
 pub fn crear_display(
     commands: &mut Commands,
     pos: Vec2,
@@ -783,8 +786,9 @@ pub fn crear_display(
         TipoPuerta::Display7Seg
     };
 
-    let alto_caja = if es_4_bits { 116.0 } else { 150.0 };
-    let ancho_caja = 74.0;
+    let sep = config.sep_pines_chip;
+    let alto_caja = if es_4_bits { 116.0 } else { 8.0 * sep + 24.0 };
+    let ancho_caja = if es_4_bits { 74.0 } else { 104.0 };
     let mut entradas = Vec::new();
 
     commands.spawn((
@@ -798,7 +802,7 @@ pub fn crear_display(
     ))
     .with_children(|padre| {
         if es_4_bits {
-            let ys = [36.0, 12.0, -12.0, -36.0];
+            let ys = [37.5, 12.5, -12.5, -37.5];
             for (i, &y) in ys.iter().enumerate() {
                 let e_in = padre.spawn((
                     bundle_conector(
@@ -809,14 +813,17 @@ pub fn crear_display(
                     PinEntrada(i),
                 ))
                 .with_children(|con| {
-                    con.spawn(bundle_hueco(config));
+                    poblar_interior_conector(con, TipoConector::Entrada, config);
                 })
                 .id();
                 entradas.push(e_in);
             }
         } else {
-            let ys = [60.0, 40.0, 20.0, 0.0, -20.0, -40.0, -60.0];
-            for (i, &y) in ys.iter().enumerate() {
+            // 8 entradas separadas a 25px: Pin 0 = S (Signo '-'), Pines 1..7 = A..G
+            let nombres_pines = ["S", "A", "B", "C", "D", "E", "F", "G"];
+            let inicio_y = 3.0 * sep;
+            for (i, nom_pin) in nombres_pines.iter().enumerate() {
+                let y = inicio_y - (i as f32 * sep);
                 let e_in = padre.spawn((
                     bundle_conector(
                         Vec3::new(-ancho_caja / 2.0, y, 0.1),
@@ -826,15 +833,27 @@ pub fn crear_display(
                     PinEntrada(i),
                 ))
                 .with_children(|con| {
-                    con.spawn(bundle_hueco(config));
+                    poblar_interior_conector(con, TipoConector::Entrada, config);
                 })
                 .id();
                 entradas.push(e_in);
+
+                padre.spawn((
+                    Text2d::new(*nom_pin),
+                    TextFont {
+                        font_size: bevy::text::FontSize::Px(11.0),
+                        ..default()
+                    },
+                    TextColor(config.col_etiqueta_texto),
+                    Transform::from_xyz(-ancho_caja / 2.0 + 16.0, y, 0.2),
+                ));
             }
         }
 
         let col_apagado = Color::srgb(0.18, 0.18, 0.20);
-        let x_off = 5.0;
+        let x_off = if es_4_bits { 5.0 } else { 18.0 };
+
+        // Segmentos 0..6 (A..G) del dígito numérico
         let defs_seg: [(usize, Vec2, Vec2); 7] = [
             (0, Vec2::new(x_off, 38.0),        Vec2::new(28.0, 6.0)),
             (1, Vec2::new(x_off + 16.0, 19.0), Vec2::new(6.0, 30.0)),
@@ -856,6 +875,19 @@ pub fn crear_display(
                 SegmentoDisplay(*idx),
             ));
         }
+
+        // Segmento 7: Signo negativo '-' a la izquierda del número (exclusivo en Display7Seg)
+        if !es_4_bits {
+            padre.spawn((
+                Sprite {
+                    color: col_apagado,
+                    custom_size: Some(Vec2::new(14.0, 6.0)),
+                    ..default()
+                },
+                Transform::from_xyz(x_off - 32.0, 0.0, 0.15),
+                SegmentoDisplay(7),
+            ));
+        }
     });
 
     (None, entradas)
@@ -863,74 +895,114 @@ pub fn crear_display(
 
 // ==========================================
 // Fichero: src/constructores.rs
-// Bloque: Bloque 9: Creador de Barras Laterales para Pines de Chip
+// Bloque: Bloque 9: Creador de Barras Laterales con Asas de Movimiento y Altura
 // ==========================================
 pub fn crear_barras_chip(
     commands: &mut Commands,
     config: &ConfigApp,
 ) {
+    crear_barras_chip_con_dimensiones(
+        commands, 
+        config, 
+        -500.0, 
+        500.0, 
+        800.0
+    );
+}
+
+pub fn crear_barras_chip_con_dimensiones(
+    commands: &mut Commands,
+    config: &ConfigApp,
+    x_izq: f32,
+    x_der: f32,
+    alto: f32,
+) {
     let ancho = 18.0;
-    // Altura ampliada a 800px para albergar cómodamente los 18 pines de chips de 8 bits
-    let alto = 800.0;
-    let x_barra = 500.0;
+    let alto_final = alto.max(200.0);
 
-    commands.spawn((
-        Sprite {
-            color: config.col_barra_io,
-            custom_size: Some(Vec2::new(ancho, alto)),
-            ..default()
-        },
-        Transform::from_xyz(-x_barra, 0.0, 0.5),
-        BarraChip::IzquierdaEntradas,
-    ))
-    .with_children(|padre| {
-        padre.spawn((
-            Sprite {
-                color: config.col_etiqueta_fondo,
-                custom_size: Some(Vec2::new(76.0, 22.0)),
-                ..default()
-            },
-            Transform::from_xyz(0.0, alto / 2.0 + 18.0, 0.1),
-        ));
-        padre.spawn((
-            Text2d::new("IN CHIP"),
-            TextFont {
-                font_size: bevy::text::FontSize::Px(13.0),
-                ..default()
-            },
-            TextColor(config.col_etiqueta_texto),
-            Transform::from_xyz(0.0, alto / 2.0 + 18.0, 0.2),
-        ));
-    });
+    let defs = [
+        (BarraChip::IzquierdaEntradas, x_izq, "IN CHIP"),
+        (BarraChip::DerechaSalidas, x_der, "OUT CHIP"),
+    ];
 
-    commands.spawn((
-        Sprite {
-            color: config.col_barra_io,
-            custom_size: Some(Vec2::new(ancho, alto)),
-            ..default()
-        },
-        Transform::from_xyz(x_barra, 0.0, 0.5),
-        BarraChip::DerechaSalidas,
-    ))
-    .with_children(|padre| {
-        padre.spawn((
+    for (tipo_barra, pos_x, titulo) in defs {
+        commands.spawn((
             Sprite {
-                color: config.col_etiqueta_fondo,
-                custom_size: Some(Vec2::new(84.0, 22.0)),
+                color: config.col_barra_io,
+                custom_size: Some(Vec2::new(ancho, alto_final)),
                 ..default()
             },
-            Transform::from_xyz(0.0, alto / 2.0 + 18.0, 0.1),
-        ));
-        padre.spawn((
-            Text2d::new("OUT CHIP"),
-            TextFont {
-                font_size: bevy::text::FontSize::Px(13.0),
-                ..default()
-            },
-            TextColor(config.col_etiqueta_texto),
-            Transform::from_xyz(0.0, alto / 2.0 + 18.0, 0.2),
-        ));
-    });
+            Transform::from_xyz(pos_x, 0.0, 0.5),
+            tipo_barra,
+        ))
+        .with_children(|padre| {
+            // 1. Etiqueta superior identificativa (IN CHIP / OUT CHIP)
+            padre.spawn((
+                Sprite {
+                    color: config.col_etiqueta_fondo,
+                    custom_size: Some(Vec2::new(84.0, 20.0)),
+                    ..default()
+                },
+                Transform::from_xyz(0.0, alto_final / 2.0 + 38.0, 0.1),
+                EtiquetaSuperiorBarra,
+            ))
+            .with_children(|cartel| {
+                cartel.spawn((
+                    Text2d::new(titulo),
+                    TextFont {
+                        font_size: bevy::text::FontSize::Px(12.0),
+                        ..default()
+                    },
+                    TextColor(config.col_etiqueta_texto),
+                    Transform::from_xyz(0.0, 0.0, 0.1),
+                ));
+            });
+
+            // 2. ASA SUPERIOR: Estirar / Encoger altura de la barra (^ ALTO v)
+            padre.spawn((
+                Sprite {
+                    color: Color::srgb(0.18, 0.36, 0.58),
+                    custom_size: Some(Vec2::new(82.0, 22.0)),
+                    ..default()
+                },
+                Transform::from_xyz(0.0, alto_final / 2.0 + 12.0, 0.2),
+                AsaAltoBarra(tipo_barra),
+            ))
+            .with_children(|asa| {
+                asa.spawn((
+                    Text2d::new("^ ALTO v"),
+                    TextFont {
+                        font_size: bevy::text::FontSize::Px(11.0),
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    Transform::from_xyz(0.0, 0.0, 0.1),
+                ));
+            });
+
+            // 3. ASA INFERIOR: Mover la barra horizontalmente (< MOVER >)
+            padre.spawn((
+                Sprite {
+                    color: Color::srgb(0.55, 0.36, 0.14),
+                    custom_size: Some(Vec2::new(86.0, 22.0)),
+                    ..default()
+                },
+                Transform::from_xyz(0.0, -alto_final / 2.0 - 12.0, 0.2),
+                AsaMoverBarra(tipo_barra),
+            ))
+            .with_children(|asa| {
+                asa.spawn((
+                    Text2d::new("< MOVER >"),
+                    TextFont {
+                        font_size: bevy::text::FontSize::Px(11.0),
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    Transform::from_xyz(0.0, 0.0, 0.1),
+                ));
+            });
+        });
+    }
 }
 
 // ==========================================

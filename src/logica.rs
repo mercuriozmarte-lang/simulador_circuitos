@@ -66,7 +66,6 @@ pub fn evaluar_puertas(
         };
 
         let mut valores_entradas = Vec::new();
-        // Ampliado a 32 para soportar chips de 8 y 16 bits (18+ pines de entrada)
         let mut entradas_ordenadas = vec![false; 32];
         let mut salidas = Vec::new();
         let mut leds = Vec::new();
@@ -201,15 +200,17 @@ pub fn evaluar_puertas(
         }
 
         if !segmentos.is_empty() {
-            let mascara_seg: [bool; 7] = match puerta.tipo {
+            // Segmentos 0..6 = A..G, Segmento 7 = S (Signo negativo '-')
+            let mascara_seg: [bool; 8] = match puerta.tipo {
                 TipoPuerta::Display7Seg => [
-                    entradas_ordenadas[0],
-                    entradas_ordenadas[1],
-                    entradas_ordenadas[2],
-                    entradas_ordenadas[3],
-                    entradas_ordenadas[4],
-                    entradas_ordenadas[5],
-                    entradas_ordenadas[6],
+                    entradas_ordenadas[1], // A
+                    entradas_ordenadas[2], // B
+                    entradas_ordenadas[3], // C
+                    entradas_ordenadas[4], // D
+                    entradas_ordenadas[5], // E
+                    entradas_ordenadas[6], // F
+                    entradas_ordenadas[7], // G
+                    entradas_ordenadas[0], // S (Signo '-')
                 ],
                 TipoPuerta::Display4Bits => {
                     let mut valor_hex = 0u8;
@@ -217,9 +218,13 @@ pub fn evaluar_puertas(
                     if entradas_ordenadas[1] { valor_hex += 4; }
                     if entradas_ordenadas[2] { valor_hex += 2; }
                     if entradas_ordenadas[3] { valor_hex += 1; }
-                    decodificar_hex_7seg(valor_hex)
+                    let seg7 = decodificar_hex_7seg(valor_hex);
+                    [
+                        seg7[0], seg7[1], seg7[2], seg7[3],
+                        seg7[4], seg7[5], seg7[6], false,
+                    ]
                 }
-                _ => [false; 7],
+                _ => [false; 8],
             };
 
             let col_apagado = Color::srgb(0.18, 0.18, 0.20);
@@ -227,7 +232,7 @@ pub fn evaluar_puertas(
                 if let Ok((seg_idx, mut sprite_seg)) = 
                     q_segmentos.get_mut(id_seg) 
                 {
-                    if seg_idx.0 < 7 && mascara_seg[seg_idx.0] {
+                    if seg_idx.0 < 8 && mascara_seg[seg_idx.0] {
                         sprite_seg.color = config.col_estado_1;
                     } else {
                         sprite_seg.color = col_apagado;
