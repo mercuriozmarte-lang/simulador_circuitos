@@ -66,7 +66,8 @@ pub fn evaluar_puertas(
         };
 
         let mut valores_entradas = Vec::new();
-        let mut entradas_ordenadas = vec![false; 16];
+        // Ampliado a 32 para soportar chips de 8 y 16 bits (18+ pines de entrada)
+        let mut entradas_ordenadas = vec![false; 32];
         let mut salidas = Vec::new();
         let mut leds = Vec::new();
         let mut segmentos = Vec::new();
@@ -262,15 +263,16 @@ fn simular_red_chip(
         }
     }
 
-    // 4 pasadas permiten estabilizar pestillos SR/D-Latch sin bloquear bucles
-    let pasadas = 4;
+    // 6 pasadas permiten propagar acarreos en sumadores de 8 bits (2x ADDER4 en cascada)
+    let pasadas = 6;
     for _ in 0..pasadas {
         for i in 0..n_nodos {
             if datos.pines_entrada.contains(&i) {
                 continue;
             }
 
-            let mut in_pines = vec![false; 12];
+            // Ampliado a 32 para soportar sub-chips con 17 o 18 pines (como 8 BIT ADDR)
+            let mut in_pines = vec![false; 32];
             let mut tiene_cables = false;
 
             for &(orig, pin_out, dest, pin_in) in datos.cables.iter() {
@@ -366,7 +368,6 @@ fn decodificar_hex_7seg(valor: u8) -> [bool; 7] {
         _ => [false; 7],
     }
 }
-
 // --- Bloque 5: Feedback Visual de Conectores ---
 pub fn actualizar_visuales_conectores(
     q_cables: Query<&Cable>,

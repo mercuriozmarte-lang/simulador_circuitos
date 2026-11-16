@@ -870,7 +870,8 @@ pub fn crear_barras_chip(
     config: &ConfigApp,
 ) {
     let ancho = 18.0;
-    let alto = 620.0;
+    // Altura ampliada a 800px para albergar cómodamente los 18 pines de chips de 8 bits
+    let alto = 800.0;
     let x_barra = 500.0;
 
     commands.spawn((

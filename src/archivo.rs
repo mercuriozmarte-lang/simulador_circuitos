@@ -1241,21 +1241,31 @@ fn cargar_desde_disco(
     println!("Circuito cargado correctamente desde {}", ruta_archivo);
 }
 
-// --- Bloque 11: Lector de Estructura Interna de Chip desde chips/ ---
+// ==========================================
+// Fichero: src/archivo.rs
+// Bloque: Bloque 11: Lector de Estructura Interna de Chip desde chips/
+// ==========================================
 pub fn leer_datos_chip_desde_chp(ruta_archivo: &str) -> Option<DatosChip> {
     let nom_limpio_path = Path::new(ruta_archivo)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or(ruta_archivo);
 
-    let ruta_en_carpeta = format!(
+    let ruta_min = format!(
         "{}/{}.chp", 
         CARPETA_CHIPS, 
         nom_limpio_path.to_lowercase()
     );
+    let ruta_may = format!(
+        "{}/{}.chp", 
+        CARPETA_CHIPS, 
+        nom_limpio_path.to_uppercase()
+    );
 
-    let contenido = fs::read_to_string(ruta_archivo)
-        .or_else(|_| fs::read_to_string(&ruta_en_carpeta))
+    // Priorizamos siempre la carpeta chips/ para evitar leer versiones antiguas fuera de lugar
+    let contenido = fs::read_to_string(&ruta_min)
+        .or_else(|_| fs::read_to_string(&ruta_may))
+        .or_else(|_| fs::read_to_string(ruta_archivo))
         .ok()?;
 
     let nombre_limpio = nom_limpio_path.to_uppercase();
@@ -1329,6 +1339,7 @@ pub fn leer_datos_chip_desde_chp(ruta_archivo: &str) -> Option<DatosChip> {
         }
     }
 
+    // Ordenamos de mayor Y (arriba) a menor Y (abajo)
     entradas_con_y.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
     salidas_con_y.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
