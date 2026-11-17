@@ -1,8 +1,7 @@
 // ==========================================
 // Fichero: src/raton.rs
+// Bloque: Bloque 1: Importaciones
 // ==========================================
-
-// --- Bloque 1: Importaciones ---
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use crate::componentes::*;
@@ -17,11 +16,12 @@ use crate::{
     crear_reloj,
     crear_display,
     crear_chip_personalizado,
+    crear_conector_bus,
 };
 
 // ==========================================
 // Fichero: src/raton.rs
-// Bloque: Bloque 2: Detectar Clic Izquierdo, Selección por Rectángulo, Borrado Múltiple y Duplicado
+// Bloque: Bloque 2: Detectar Clic Izquierdo, Conector de Bus (Agarre, Giro R, Flecha F, +/- y Modo <->)
 // ==========================================
 pub fn detectar_clic_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
@@ -46,14 +46,18 @@ pub fn detectar_clic_nodo(
             &Transform, 
             &NodoLogico, 
             Option<&InstanciaChip>,
+            Option<&DatosConectorBus>,
             Option<&Arrastrando>,
             Option<&Seleccionado>,
         ), 
         With<NodoLogico>
     >,
-    q_conectores: Query<
-        (Entity, &GlobalTransform, &TipoConector)
-    >,
+    q_conectores: Query<(
+        Entity, 
+        &GlobalTransform, 
+        &TipoConector,
+        Option<&ConectorBidireccional>,
+    )>,
     q_cables: Query<(Entity, &Cable)>,
     controles_nodos: (
         Query<
@@ -65,6 +69,8 @@ pub fn detectar_clic_nodo(
             Without<BotonInterruptor>,
         >,
         Query<(&GlobalTransform, &BotonVerInteriorChip)>,
+        Query<(&GlobalTransform, &ControlFlechaBus)>,
+        Query<(&GlobalTransform, &BotonReguladorBus)>,
         Query<(&GlobalTransform, &AsaMoverBarra)>,
         Query<(&GlobalTransform, &AsaAltoBarra)>,
     ),
@@ -114,9 +120,11 @@ pub fn detectar_clic_nodo(
     ) = estados_edicion;
 
     // 0. BORRAR BLOQUE SELECCIONADO CON TECLA [DELETE / SUPR] O [BACKSPACE]
-    if keys.just_pressed(KeyCode::Delete) || keys.just_pressed(KeyCode::Backspace) {
+    if keys.just_pressed(KeyCode::Delete) 
+        || keys.just_pressed(KeyCode::Backspace) 
+    {
         let mut borrado = false;
-        for (ent, _, _, _, _, opt_sel) in q_nodos.iter() {
+        for (ent, _, _, _, _, _, opt_sel) in q_nodos.iter() {
             if opt_sel.is_some() {
                 commands.entity(ent).despawn();
                 borrado = true;
@@ -127,9 +135,68 @@ pub fn detectar_clic_nodo(
         }
     }
 
-    // 0A. SI YA LLEVAMOS PIEZAS ENGANCHADAS AL CURSOR (Estilo DLS)
-    let mut en_mano: Vec<(Entity, TipoPuerta, Option<DatosChip>, f32)> = Vec::new();
-    for (ent, _, nodo, opt_chip, opt_arr, _) in q_nodos.iter() {
+    // 0A. ATAJOS SOBRE CONECTOR DE BUS (En mano o bajo el cursor)
+    let cambio_r = keys.just_pressed(KeyCode::KeyR);
+    let cambio_f = keys.just_pressed(KeyCode::KeyF);
+    let subir_n = keys.just_pressed(KeyCode::ArrowUp)
+        || keys.just_pressed(KeyCode::PageUp)
+        || keys.just_pressed(KeyCode::NumpadAdd)
+        || keys.just_pressed(KeyCode::Equal);
+    let bajar_n = keys.just_pressed(KeyCode::ArrowDown)
+        || keys.just_pressed(KeyCode::PageDown)
+        || keys.just_pressed(KeyCode::NumpadSubtract)
+        || keys.just_pressed(KeyCode::Minus);
+
+    if cambio_r || cambio_f || subir_n || bajar_n {
+        for (ent, trf, nodo, _, opt_bus, opt_arr, _) in q_nodos.iter() {
+            if nodo.tipo != TipoPuerta::ConectorBus {
+                continue;
+            }
+            let Some(&datos_b) = opt_bus else { continue; };
+            let centro = trf.translation.truncate();
+            let radio_bus = (datos_b.num_hilos as f32 * 14.0).max(65.0);
+            let es_objetivo = opt_arr.is_some() 
+                || pos_mundo.distance(centro) < radio_bus;
+
+            if es_objetivo {
+                let mut nuevos_datos = datos_b;
+                if cambio_r {
+                    nuevos_datos.rotacion = (nuevos_datos.rotacion + 1) % 4;
+                }
+                if cambio_f {
+                    nuevos_datos.modo = nuevos_datos.modo.siguiente();
+                }
+                if subir_n {
+                    nuevos_datos.num_hilos = 
+                        (nuevos_datos.num_hilos + 1).min(16);
+                }
+                if bajar_n {
+                    nuevos_datos.num_hilos = 
+                        nuevos_datos.num_hilos.saturating_sub(1).max(2);
+                }
+
+                let offset_previo = opt_arr.map(|a| a.offset);
+                commands.entity(ent).despawn();
+                let (nuevo_ent, _, _) = crear_conector_bus(
+                    commands,
+                    centro,
+                    nuevos_datos,
+                    &config,
+                );
+                if let Some(off) = offset_previo {
+                    commands
+                        .entity(nuevo_ent)
+                        .insert(Arrastrando { offset: off });
+                }
+                return;
+            }
+        }
+    }
+
+    // 0B. SI YA LLEVAMOS PIEZAS ENGANCHADAS AL CURSOR
+    let mut en_mano: Vec<(Entity, TipoPuerta, Option<DatosChip>, f32)> = 
+        Vec::new();
+    for (ent, _, nodo, opt_chip, _, opt_arr, _) in q_nodos.iter() {
         if let Some(arr) = opt_arr {
             en_mano.push((
                 ent,
@@ -141,7 +208,9 @@ pub fn detectar_clic_nodo(
     }
 
     if !en_mano.is_empty() {
-        if keys.just_pressed(KeyCode::KeyD) || keys.just_pressed(KeyCode::ArrowUp) {
+        if keys.just_pressed(KeyCode::KeyD) 
+            || keys.just_pressed(KeyCode::ArrowUp) 
+        {
             let (_, tipo_base, datos_base, min_offset) = en_mano
                 .iter()
                 .min_by(|a, b| a.3.partial_cmp(&b.3).unwrap())
@@ -150,17 +219,24 @@ pub fn detectar_clic_nodo(
 
             let paso = config.paso_snap_puerta;
             let sep_vertical = if let Some(ref d) = datos_base {
-                let max_p = d.pines_entrada.len().max(d.pines_salida.len()).max(1);
+                let max_p = d
+                    .pines_entrada
+                    .len()
+                    .max(d.pines_salida.len())
+                    .max(1);
                 let alto_est = (
                     max_p as f32 * config.sep_pines_chip + 36.0
                 ).max(100.0);
                 (alto_est / paso).ceil() * paso
             } else {
-                100.0
+                50.0
             };
 
             let nuevo_offset = min_offset - sep_vertical;
-            let pos_nueva = Vec2::new(pos_mundo.x, pos_mundo.y + nuevo_offset);
+            let pos_nueva = Vec2::new(
+                pos_mundo.x, 
+                pos_mundo.y + nuevo_offset
+            );
 
             if tipo_base == TipoPuerta::Chip {
                 if let Some(datos) = datos_base {
@@ -198,12 +274,15 @@ pub fn detectar_clic_nodo(
         }
     }
 
-    // 0B. Duplicar pieza bajo el cursor con tecla [D]
+    // 0C. Duplicar pieza bajo el cursor con tecla [D]
     if en_mano.is_empty() && keys.just_pressed(KeyCode::KeyD) {
-        for (_, trf, nodo, opt_chip, _, _) in q_nodos.iter() {
+        for (_, trf, nodo, opt_chip, opt_bus, _, _) in q_nodos.iter() {
             let centro = trf.translation.truncate();
             if pos_mundo.distance(centro) < config.rad_clic_nodo {
-                let nueva_pos = Vec2::new(centro.x, centro.y - config.sep_pines_chip);
+                let nueva_pos = Vec2::new(
+                    centro.x, 
+                    centro.y - config.sep_pines_chip
+                );
                 match nodo.tipo {
                     TipoPuerta::And
                     | TipoPuerta::Or
@@ -217,7 +296,7 @@ pub fn detectar_clic_nodo(
                             commands,
                             meshes,
                             materials,
-                            Vec2::new(centro.x, centro.y - 100.0),
+                            Vec2::new(centro.x, centro.y - 50.0),
                             nodo.tipo,
                             &config,
                         );
@@ -269,6 +348,19 @@ pub fn detectar_clic_nodo(
                             &config
                         );
                     }
+                    TipoPuerta::ConectorBus => {
+                        if let Some(&datos_b) = opt_bus {
+                            let (ent_b, _, _) = crear_conector_bus(
+                                commands,
+                                pos_mundo,
+                                datos_b,
+                                &config,
+                            );
+                            commands
+                                .entity(ent_b)
+                                .insert(Arrastrando { offset: Vec2::ZERO });
+                        }
+                    }
                     TipoPuerta::Chip => {
                         if let Some(chip) = opt_chip {
                             let (ent_c, _, _) = crear_chip_personalizado(
@@ -288,7 +380,9 @@ pub fn detectar_clic_nodo(
         }
     }
 
-    if keys.pressed(KeyCode::Space) || !buttons.just_pressed(MouseButton::Left) {
+    if keys.pressed(KeyCode::Space) 
+        || !buttons.just_pressed(MouseButton::Left) 
+    {
         return;
     }
 
@@ -304,28 +398,35 @@ pub fn detectar_clic_nodo(
         mut q_botones, 
         mut q_relojes, 
         q_botones_ver_chip,
+        q_flechas_bus,
+        q_regulador_bus,
         q_asas_mover,
         q_asas_alto,
     ) = controles_nodos;
 
     if *estado_app.get() == ModoApp::CreandoLinea {
-        for (ent_destino, g_trf, tipo) in q_conectores.iter() {
+        for (ent_destino, g_trf, tipo, opt_bi) in q_conectores.iter() {
             let pos_conector = g_trf.translation().truncate();
             if pos_mundo.distance(pos_conector) < config.rad_clic_con {
-                if *tipo == TipoConector::Entrada {
-                    let ocupada = q_cables
-                        .iter()
-                        .any(|(_, c)| c.destino == ent_destino);
+                // Acepta conectores de Entrada o conectores Bidireccionales ("<->")
+                if *tipo == TipoConector::Entrada || opt_bi.is_some() {
+                    if let Some(orig) = estado_linea.origen_entidad {
+                        if orig != ent_destino {
+                            let duplicado = q_cables
+                                .iter()
+                                .any(|(_, c)| {
+                                    c.origen == orig && c.destino == ent_destino
+                                });
 
-                    if !ocupada {
-                        if let Some(orig) = estado_linea.origen_entidad {
-                            commands.spawn(Cable {
-                                origen: orig,
-                                destino: ent_destino,
-                                puntos_intermedios: estado_linea
-                                    .puntos_intermedios
-                                    .clone(),
-                            });
+                            if !duplicado {
+                                commands.spawn(Cable {
+                                    origen: orig,
+                                    destino: ent_destino,
+                                    puntos_intermedios: estado_linea
+                                        .puntos_intermedios
+                                        .clone(),
+                                });
+                            }
                         }
                     }
                     estado_linea.puntos_intermedios.clear();
@@ -356,21 +457,21 @@ pub fn detectar_clic_nodo(
         return;
     }
 
-    // 0C. PRIORIDAD AGARRADEROS DE SELECCIÓN MÚLTIPLE:
-    //     Si el clic cae dentro del recuadro celeste (92x56 -> +/-46 en X, +/-28 en Y)
-    //     de cualquier nodo `Seleccionado` (incluidos Interruptores y LEDs),
-    //     iniciamos el arrastre de todo el bloque seleccionado sin conmutar interruptores.
-    let clic_en_agarradero_seleccionado = q_nodos.iter().any(|(_, trf, _, _, _, opt_sel)| {
-        if opt_sel.is_some() {
-            let c = trf.translation.truncate();
-            (pos_mundo.x - c.x).abs() <= 46.0 && (pos_mundo.y - c.y).abs() <= 28.0
-        } else {
-            false
-        }
-    });
+    // 0D. PRIORIDAD AGARRADEROS DE SELECCIÓN MÚLTIPLE
+    let clic_en_agarradero_seleccionado = q_nodos
+        .iter()
+        .any(|(_, trf, _, _, _, _, opt_sel)| {
+            if opt_sel.is_some() {
+                let c = trf.translation.truncate();
+                (pos_mundo.x - c.x).abs() <= 46.0 
+                    && (pos_mundo.y - c.y).abs() <= 28.0
+            } else {
+                false
+            }
+        });
 
     if clic_en_agarradero_seleccionado {
-        for (ent, trf, _, _, _, opt_sel) in q_nodos.iter() {
+        for (ent, trf, _, _, _, _, opt_sel) in q_nodos.iter() {
             if opt_sel.is_some() {
                 let centro = trf.translation.truncate();
                 commands.entity(ent).insert(Arrastrando {
@@ -381,7 +482,53 @@ pub fn detectar_clic_nodo(
         return;
     }
 
-    // 0D. Clic sobre Asas de Barras
+    // 0E-1. Clic sobre los botones [+] / [-] del Conector de Bus
+    for (g_trf, btn_reg) in q_regulador_bus.iter() {
+        let pos_btn = g_trf.translation().truncate();
+        if pos_mundo.distance(pos_btn) < 10.0 {
+            if let Ok((ent_b, trf_b, _, _, Some(&datos_b), _, _)) = 
+                q_nodos.get(btn_reg.nodo_padre) 
+            {
+                let centro = trf_b.translation.truncate();
+                let mut nuevos_datos = datos_b;
+                let n_actual = nuevos_datos.num_hilos as isize;
+                nuevos_datos.num_hilos = 
+                    (n_actual + btn_reg.delta).clamp(2, 16) as usize;
+                commands.entity(ent_b).despawn();
+                crear_conector_bus(
+                    commands, 
+                    centro, 
+                    nuevos_datos, 
+                    &config
+                );
+                return;
+            }
+        }
+    }
+
+    // 0E-2. Clic sobre el cuello/flecha de un Conector de Bus
+    for (g_trf, ctrl_flecha) in q_flechas_bus.iter() {
+        let pos_flecha = g_trf.translation().truncate();
+        if pos_mundo.distance(pos_flecha) < 16.0 {
+            if let Ok((ent_b, trf_b, _, _, Some(&datos_b), _, _)) = 
+                q_nodos.get(ctrl_flecha.nodo_padre) 
+            {
+                let centro = trf_b.translation.truncate();
+                let mut nuevos_datos = datos_b;
+                nuevos_datos.modo = nuevos_datos.modo.siguiente();
+                commands.entity(ent_b).despawn();
+                crear_conector_bus(
+                    commands, 
+                    centro, 
+                    nuevos_datos, 
+                    &config
+                );
+                return;
+            }
+        }
+    }
+
+    // 0F. Clic sobre Asas de Barras
     for (g_trf, asa_m) in q_asas_mover.iter() {
         let pos_asa = g_trf.translation().truncate();
         if (pos_mundo.x - pos_asa.x).abs() < 45.0 
@@ -408,11 +555,11 @@ pub fn detectar_clic_nodo(
         }
     }
 
-    // 1. Prioridad 1: Clic en conector de Salida para empezar un cable
-    for (ent_conector, g_trf, tipo) in q_conectores.iter() {
+    // 1. Prioridad 1: Clic en conector de Salida (o Bidireccional "<->") para empezar un cable
+    for (ent_conector, g_trf, tipo, opt_bi) in q_conectores.iter() {
         let pos_conector = g_trf.translation().truncate();
         if pos_mundo.distance(pos_conector) < config.rad_clic_con {
-            if *tipo == TipoConector::Salida {
+            if *tipo == TipoConector::Salida || opt_bi.is_some() {
                 estado_linea.origen_entidad = Some(ent_conector);
                 estado_linea.origen_pos = pos_conector;
                 estado_linea.puntos_intermedios.clear();
@@ -485,16 +632,29 @@ pub fn detectar_clic_nodo(
         }
     }
 
-    // 3. Prioridad 3: Clic en el cuerpo de un nodo no seleccionado para arrastrarlo individualmente
+    // 3. Prioridad 3: Clic en la zona de agarre de un nodo para arrastrarlo
     let mut nodo_clicado = None;
-    for (entidad, trf, nodo, _, _, _) in q_nodos.iter() {
+    for (entidad, trf, nodo, _, opt_bus, _, _) in q_nodos.iter() {
         let centro_nodo = trf.translation.truncate();
         let clic_dentro = if matches!(
             nodo.tipo, 
             TipoPuerta::Interruptor | TipoPuerta::Led
         ) {
-            (pos_mundo.x - centro_nodo.x).abs() <= (config.ancho_agarre_io / 2.0 + 4.0)
-                && (pos_mundo.y - centro_nodo.y).abs() <= (config.alto_io / 2.0 + 2.0)
+            (pos_mundo.x - centro_nodo.x).abs() 
+                <= (config.ancho_agarre_io / 2.0 + 4.0)
+                && (pos_mundo.y - centro_nodo.y).abs() 
+                    <= (config.alto_io / 2.0 + 2.0)
+        } else if nodo.tipo == TipoPuerta::ConectorBus {
+            // Detección rotada sobre la barra blanca de agarre del Conector de Bus
+            let n_hilos = opt_bus.map(|b| b.num_hilos).unwrap_or(8);
+            let rot = opt_bus.map(|b| b.rotacion % 4).unwrap_or(0);
+            let semialto = (n_hilos as f32 * config.sep_pines_chip) / 2.0;
+            let delta = pos_mundo - centro_nodo;
+            if rot % 2 == 0 {
+                delta.x.abs() <= 14.0 && delta.y.abs() <= semialto
+            } else {
+                delta.y.abs() <= 14.0 && delta.x.abs() <= semialto
+            }
         } else {
             pos_mundo.distance(centro_nodo) < config.rad_clic_nodo
         };
@@ -506,7 +666,7 @@ pub fn detectar_clic_nodo(
     }
 
     if let Some(ent_clic) = nodo_clicado {
-        for (ent, _, _, _, _, opt_sel) in q_nodos.iter() {
+        for (ent, _, _, _, _, _, opt_sel) in q_nodos.iter() {
             if opt_sel.is_some() {
                 commands.entity(ent).remove::<Seleccionado>();
             }
@@ -518,7 +678,7 @@ pub fn detectar_clic_nodo(
     }
 
     // 4. CLIC EN ZONA VACÍA DEL LIENZO: Deseleccionamos y abrimos Rectángulo de Selección
-    for (ent, _, _, _, _, opt_sel) in q_nodos.iter() {
+    for (ent, _, _, _, _, _, opt_sel) in q_nodos.iter() {
         if opt_sel.is_some() {
             commands.entity(ent).remove::<Seleccionado>();
         }
@@ -534,7 +694,6 @@ pub fn detectar_clic_nodo(
 // ==========================================
 pub fn soltar_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
-    // Añadido Without<Arrastrando> para que sea disjunto con q_arrastrando en Transform
     q_nodos_todos: Query<
         (Entity, &Transform), 
         (With<NodoLogico>, Without<Arrastrando>)
@@ -547,9 +706,12 @@ pub fn soltar_nodo(
         (&Transform, &Sprite, &BarraChip), 
         Without<Arrastrando>
     >,
-    q_conectores: Query<
-        (Entity, &GlobalTransform, &TipoConector)
-    >,
+    q_conectores: Query<(
+        Entity, 
+        &GlobalTransform, 
+        &TipoConector,
+        Option<&ConectorBidireccional>,
+    )>,
     mut q_cables: Query<&mut Cable>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
     q_camera: Query<
@@ -569,7 +731,6 @@ pub fn soltar_nodo(
         return;
     }
 
-    // 0. Si estábamos trazando un Rectángulo de Selección, seleccionamos los nodos en su interior
     if caja_sel.activa {
         caja_sel.activa = false;
         let min_x = caja_sel.inicio.x.min(caja_sel.actual.x);
@@ -621,6 +782,7 @@ pub fn soltar_nodo(
             | TipoPuerta::Led 
             | TipoPuerta::Display4Bits 
             | TipoPuerta::Display7Seg
+            | TipoPuerta::ConectorBus
         ) {
             config.paso_snap_io
         } else {
@@ -682,23 +844,25 @@ pub fn soltar_nodo(
                 cam_trf, 
                 pos_pantalla
             ) {
-                for (ent_destino, g_trf, tipo) in q_conectores.iter() {
+                for (ent_destino, g_trf, tipo, opt_bi) in q_conectores.iter() {
                     let pos_conector = g_trf.translation().truncate();
                     if pos_mundo.distance(pos_conector) < config.rad_clic_con {
-                        if *tipo == TipoConector::Entrada {
-                            let entrada_ocupada = q_cables
-                                .iter()
-                                .any(|c| c.destino == ent_destino);
+                        if *tipo == TipoConector::Entrada || opt_bi.is_some() {
+                            if let Some(orig) = estado_linea.origen_entidad {
+                                if orig != ent_destino {
+                                    let duplicado = q_cables
+                                        .iter()
+                                        .any(|c| {
+                                            c.origen == orig && c.destino == ent_destino
+                                        });
 
-                            if !entrada_ocupada {
-                                if let Some(orig) = 
-                                    estado_linea.origen_entidad 
-                                {
-                                    commands.spawn(Cable {
-                                        origen: orig,
-                                        destino: ent_destino,
-                                        puntos_intermedios: Vec::new(),
-                                    });
+                                    if !duplicado {
+                                        commands.spawn(Cable {
+                                            origen: orig,
+                                            destino: ent_destino,
+                                            puntos_intermedios: Vec::new(),
+                                        });
+                                    }
                                 }
                             }
                             estado_linea.puntos_intermedios.clear();

@@ -78,7 +78,10 @@ pub fn propagar_cables(
     }
 }
 
-// --- Bloque 3: Evaluación de Puertas Lógicas, Tri-State, Displays y Chips ---
+// ==========================================
+// Fichero: src/logica.rs
+// Bloque: Bloque 3: Evaluación de Puertas Lógicas, Tri-State, Displays y Chips
+// ==========================================
 pub fn evaluar_puertas(
     mut q_puertas: Query<
         (Entity, &NodoLogico, Option<&mut InstanciaChip>), 
@@ -180,6 +183,10 @@ pub fn evaluar_puertas(
             continue;
         }
 
+        if puerta.tipo == TipoPuerta::ConectorBus {
+            continue;
+        }
+
         let resultado = match puerta.tipo {
             TipoPuerta::And => {
                 !valores_entradas.is_empty() 
@@ -214,7 +221,6 @@ pub fn evaluar_puertas(
                     .count();
                 unos % 2 == 0
             }
-            // Buffer Tri-State: Pin 0 = Enable, Pin 1 = Data
             TipoPuerta::TriState => {
                 entradas_ordenadas[0] && entradas_ordenadas[1]
             }
@@ -226,6 +232,7 @@ pub fn evaluar_puertas(
             }
             TipoPuerta::Display7Seg 
             | TipoPuerta::Display4Bits 
+            | TipoPuerta::ConectorBus
             | TipoPuerta::Chip => {
                 false
             }
@@ -237,9 +244,15 @@ pub fn evaluar_puertas(
             }
         }
 
+        let estado_indicador = if puerta.tipo == TipoPuerta::TriState {
+            entradas_ordenadas[0]
+        } else {
+            resultado
+        };
+
         for id_led in leds {
             if let Ok(mut sprite_led) = q_leds.get_mut(id_led) {
-                if resultado {
+                if estado_indicador {
                     sprite_led.color = config.col_estado_1;
                 } else {
                     sprite_led.color = config.col_estado_0;

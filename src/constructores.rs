@@ -227,7 +227,7 @@ fn crear_malla_arco_xor(
 
 // ==========================================
 // Fichero: src/constructores.rs
-// Bloque: Bloque 4: Creador de Puertas Lógicas y Buffer Tri-State
+// Bloque: Bloque 4: Creador de Puertas Lógicas y Buffer Tri-State (con Punto Enable)
 // ==========================================
 pub fn crear_puerta(
     commands: &mut Commands,
@@ -278,26 +278,57 @@ pub fn crear_puerta(
     ))
     .with_children(|padre| {
         if tipo_puerta == TipoPuerta::TriState {
-            // Patilla superior (Pin 0 = Enable): entra hacia la parte superior del triángulo
+            // 1. Pista horizontal de la patilla superior (Pin 0 = Enable) hasta X = -6.0
             padre.spawn((
                 Sprite {
                     color: col_borde,
-                    custom_size: Some(Vec2::new(36.0, 3.5)),
+                    custom_size: Some(Vec2::new(42.0, 3.5)),
                     ..default()
                 },
-                Transform::from_xyz(-30.0, 12.5, 0.02),
+                Transform::from_xyz(-27.0, 18.0, 0.02),
             ));
-            // Bajada vertical de la línea de control Enable hacia el lomo del triángulo
+            // Bajada vertical hacia el punto de control en el lomo superior del triángulo
             padre.spawn((
                 Sprite {
                     color: col_borde,
-                    custom_size: Some(Vec2::new(3.5, 10.0)),
+                    custom_size: Some(Vec2::new(3.5, 9.0)),
                     ..default()
                 },
-                Transform::from_xyz(-12.0, 9.0, 0.02),
+                Transform::from_xyz(-6.0, 14.0, 0.02),
             ));
 
-            // Patilla inferior (Pin 1 = Data): entra a la base izquierda del triángulo
+            // PUNTO / SEÑAL DE ENABLE sobre el borde oblicuo superior del triángulo:
+            // Aro exterior oscuro + Punto interior que cambia de rojo (0) a verde (1) según EN
+            padre.spawn((
+                Sprite {
+                    color: col_borde,
+                    custom_size: Some(Vec2::new(10.0, 10.0)),
+                    ..default()
+                },
+                Transform::from_xyz(-6.0, 10.0, 0.14),
+            ));
+            padre.spawn((
+                Sprite {
+                    color: config.col_estado_0,
+                    custom_size: Some(Vec2::new(6.0, 6.0)),
+                    ..default()
+                },
+                Transform::from_xyz(-6.0, 10.0, 0.18),
+                IndicadorLed,
+            ));
+
+            // Etiqueta "EN" junto al pin superior de habilitación
+            padre.spawn((
+                Text2d::new("EN"),
+                TextFont {
+                    font_size: bevy::text::FontSize::Px(10.0),
+                    ..default()
+                },
+                TextColor(col_borde),
+                Transform::from_xyz(-34.0, 25.0, 0.20),
+            ));
+
+            // 2. Patilla inferior (Pin 1 = Data): entra a la base izquierda del triángulo
             padre.spawn((
                 Sprite {
                     color: col_borde,
@@ -307,7 +338,7 @@ pub fn crear_puerta(
                 Transform::from_xyz(-35.0, -12.5, 0.02),
             ));
 
-            // Patilla de salida derecha
+            // 3. Patilla de salida derecha
             padre.spawn((
                 Sprite {
                     color: col_borde,
@@ -317,14 +348,14 @@ pub fn crear_puerta(
                 Transform::from_xyz(35.0, 0.0, 0.02),
             ));
 
-            // Cuerpo triangular vectorial (mismo estilo que las demás puertas)
+            // 4. Cuerpo triangular vectorial
             let pts_ext = [
-                Vec2::new(-24.0, 24.0),
+                Vec2::new(-24.0, 22.0),
                 Vec2::new(-24.0, -24.0),
                 Vec2::new(24.0, 0.0),
             ];
             let pts_int = [
-                Vec2::new(-20.5, 18.5),
+                Vec2::new(-20.5, 16.5),
                 Vec2::new(-20.5, -18.5),
                 Vec2::new(17.0, 0.0),
             ];
@@ -353,12 +384,12 @@ pub fn crear_puerta(
                     ..default()
                 },
                 TextColor(col_borde),
-                Transform::from_xyz(-8.0, -2.0, 0.20),
+                Transform::from_xyz(-10.0, -3.0, 0.20),
             ));
 
             let e_en = padre.spawn((
                 bundle_conector(
-                    Vec3::new(x_con_in, 12.5, 0.25),
+                    Vec3::new(x_con_in, 18.0, 0.25),
                     TipoConector::Entrada,
                     config,
                 ),
@@ -1122,7 +1153,7 @@ pub fn crear_barras_chip_con_dimensiones(
 
 // ==========================================
 // Fichero: src/constructores.rs
-// Bloque: Bloque 10: Creador de Chips Personalizados (Pines Alineados al Paso)
+// Bloque: Bloque 10: Creador de Chips Personalizados y Conector de Bus
 // ==========================================
 pub fn crear_chip_personalizado(
     commands: &mut Commands,
@@ -1134,69 +1165,82 @@ pub fn crear_chip_personalizado(
     let num_out = datos.pines_salida.len();
     let max_pines = num_in.max(num_out).max(1);
 
+    let sep = config.sep_pines_chip;
+    let alto_caja = (max_pines as f32 * sep + 36.0).max(90.0);
+
     let max_len_in = datos
         .nombres_entrada
         .iter()
-        .map(|s| s.len())
+        .map(|s| s.chars().count())
         .max()
         .unwrap_or(0);
     let max_len_out = datos
         .nombres_salida
         .iter()
-        .map(|s| s.len())
+        .map(|s| s.chars().count())
         .max()
         .unwrap_or(0);
-    let margen_pines = ((max_len_in + max_len_out) as f32 * 8.5).max(28.0);
 
-    let ancho_texto = (datos.nombre.len() as f32 * 11.0).max(76.0);
-    let ancho_cuerpo = ancho_texto + margen_pines + 40.0;
-    // Usamos config.sep_pines_chip (25px) y alineamos el primer pin a un múltiplo exacto
-    // para que todas las patillas coincidan con el snap de los Interruptores y LEDs.
-    let separacion_pines = config.sep_pines_chip;
-    let alto_cuerpo = (max_pines as f32 * separacion_pines + 30.0).max(64.0);
+    let w_in = if max_len_in > 0 {
+        (max_len_in as f32) * 7.5 + 16.0
+    } else {
+        0.0
+    };
+    let w_out = if max_len_out > 0 {
+        (max_len_out as f32) * 7.5 + 16.0
+    } else {
+        0.0
+    };
+    let w_titulo = (datos.nombre.chars().count() as f32) * 9.5 + 30.0;
 
-    let memoria = EstadoRedChip::nuevo_desde_datos(&datos);
+    let ancho_caja = (w_in + w_titulo + w_out + 36.0).max(120.0);
 
-    let nombre_mostrar = datos.nombre.clone();
-    let nombres_in = datos.nombres_entrada.clone();
-    let nombres_out = datos.nombres_salida.clone();
-    let archivo_chp = format!("chips/{}.chp", datos.nombre.to_lowercase());
-    let mut salidas_ent = Vec::new();
-    let mut entradas_ent = Vec::new();
+    let mut salidas = Vec::new();
+    let mut entradas = Vec::new();
 
-    let ent_chip = commands.spawn((
+    let nombre_titulo = datos.nombre.clone();
+    let archivo_origen = format!(
+        "chips/{}.chp", 
+        datos.nombre.to_lowercase()
+    );
+    let memoria_inicial = EstadoRedChip::nuevo_desde_datos(&datos);
+
+    let entidad_chip = commands.spawn((
         Sprite {
-            color: Color::srgb(0.18, 0.32, 0.48),
-            custom_size: Some(Vec2::new(ancho_cuerpo, alto_cuerpo)),
+            color: Color::srgb(0.18, 0.30, 0.45),
+            custom_size: Some(Vec2::new(ancho_caja, alto_caja)),
             ..default()
         },
         Transform::from_xyz(pos.x, pos.y, 1.0),
-        NodoLogico { tipo: TipoPuerta::Chip },
+        NodoLogico { 
+            tipo: TipoPuerta::Chip 
+        },
         InstanciaChip {
-            datos,
-            memoria,
+            datos: datos.clone(),
+            memoria: memoria_inicial,
         },
     ))
     .with_children(|padre| {
         padre.spawn((
-            Text2d::new(nombre_mostrar),
+            Text2d::new(nombre_titulo),
             TextFont {
-                font_size: bevy::text::FontSize::Px(15.0),
+                font_size: bevy::text::FontSize::Px(14.0),
                 ..default()
             },
             TextColor(Color::WHITE),
-            Transform::from_xyz(0.0, 9.0, 0.2),
+            Transform::from_xyz(0.0, 6.0, 0.2),
         ));
 
-        let y_btn = -alto_cuerpo / 2.0 + 12.0;
         padre.spawn((
             Sprite {
                 color: Color::srgb(0.10, 0.18, 0.28),
-                custom_size: Some(Vec2::new(42.0, 16.0)),
+                custom_size: Some(Vec2::new(40.0, 16.0)),
                 ..default()
             },
-            Transform::from_xyz(0.0, y_btn, 0.2),
-            BotonVerInteriorChip { archivo_chp },
+            Transform::from_xyz(0.0, -alto_caja / 2.0 + 12.0, 0.2),
+            BotonVerInteriorChip {
+                archivo_chp: archivo_origen,
+            },
         ))
         .with_children(|btn| {
             btn.spawn((
@@ -1205,109 +1249,98 @@ pub fn crear_chip_personalizado(
                     font_size: bevy::text::FontSize::Px(10.0),
                     ..default()
                 },
-                TextColor(Color::srgb(0.65, 0.90, 1.0)),
+                TextColor(Color::srgb(0.75, 0.90, 1.0)),
                 Transform::from_xyz(0.0, 0.0, 0.1),
             ));
         });
 
-        // Alineamos el Pin 0 superior a un múltiplo entero de separacion_pines
-        let inicio_in_y = 
-            ((num_in.saturating_sub(1) / 2) as f32) * separacion_pines;
+        let inicio_in = ((num_in / 2) as f32) * sep;
         for i in 0..num_in {
-            let y = inicio_in_y - (i as f32 * separacion_pines);
+            let y = inicio_in - (i as f32 * sep);
             let e_in = padre.spawn((
                 bundle_conector(
-                    Vec3::new(-ancho_cuerpo / 2.0, y, 0.1),
+                    Vec3::new(-ancho_caja / 2.0, y, 0.1),
                     TipoConector::Entrada,
                     config,
                 ),
                 PinEntrada(i),
             ))
             .with_children(|con| {
-                poblar_interior_conector(con, TipoConector::Entrada, config);
+                poblar_interior_conector(
+                    con, 
+                    TipoConector::Entrada, 
+                    config
+                );
             })
             .id();
-            entradas_ent.push(e_in);
+            entradas.push(e_in);
 
-            if let Some(etq) = nombres_in.get(i) {
-                if !etq.is_empty() {
-                    let w_etq = (etq.len() as f32 * 7.5 + 8.0).max(20.0);
-                    let offset_x = 10.0 + w_etq / 2.0;
+            if let Some(nom_in) = datos.nombres_entrada.get(i) {
+                if !nom_in.is_empty() {
+                    let w_box = ancho_caja_etiqueta(nom_in);
+                    let x_box = -ancho_caja / 2.0 + 10.0 + w_box / 2.0;
                     padre.spawn((
                         Sprite {
                             color: config.col_etiqueta_fondo,
-                            custom_size: Some(Vec2::new(w_etq, 15.0)),
+                            custom_size: Some(Vec2::new(w_box, 16.0)),
                             ..default()
                         },
-                        Transform::from_xyz(
-                            -ancho_cuerpo / 2.0 + offset_x,
-                            y,
-                            0.22,
-                        ),
+                        Transform::from_xyz(x_box, y, 0.15),
                     ));
                     padre.spawn((
-                        Text2d::new(etq.clone()),
+                        Text2d::new(nom_in.clone()),
                         TextFont {
                             font_size: bevy::text::FontSize::Px(11.0),
                             ..default()
                         },
                         TextColor(config.col_etiqueta_texto),
-                        Transform::from_xyz(
-                            -ancho_cuerpo / 2.0 + offset_x,
-                            y,
-                            0.25,
-                        ),
+                        Transform::from_xyz(x_box, y, 0.20),
                     ));
                 }
             }
         }
 
-        let inicio_out_y = 
-            ((num_out.saturating_sub(1) / 2) as f32) * separacion_pines;
-        for i in 0..num_out {
-            let y = inicio_out_y - (i as f32 * separacion_pines);
+        let inicio_out = ((num_out / 2) as f32) * sep;
+        for j in 0..num_out {
+            let y = inicio_out - (j as f32 * sep);
             let e_out = padre.spawn((
                 bundle_conector(
-                    Vec3::new(ancho_cuerpo / 2.0, y, 0.1),
+                    Vec3::new(ancho_caja / 2.0, y, 0.1),
                     TipoConector::Salida,
                     config,
                 ),
-                PinSalida(i),
+                PinSalida(j),
             ))
             .with_children(|con| {
-                poblar_interior_conector(con, TipoConector::Salida, config);
+                poblar_interior_conector(
+                    con, 
+                    TipoConector::Salida, 
+                    config
+                );
             })
             .id();
-            salidas_ent.push(e_out);
+            salidas.push(e_out);
 
-            if let Some(etq) = nombres_out.get(i) {
-                if !etq.is_empty() {
-                    let w_etq = (etq.len() as f32 * 7.5 + 8.0).max(20.0);
-                    let offset_x = 10.0 + w_etq / 2.0;
+            if let Some(nom_out) = datos.nombres_salida.get(j) {
+                if !nom_out.is_empty() {
+                    let w_box = ancho_caja_etiqueta(nom_out);
+                    let x_box = ancho_caja / 2.0 - 10.0 - w_box / 2.0;
                     padre.spawn((
                         Sprite {
                             color: config.col_etiqueta_fondo,
-                            custom_size: Some(Vec2::new(w_etq, 15.0)),
+                            custom_size: Some(Vec2::new(w_box, 16.0)),
                             ..default()
                         },
-                        Transform::from_xyz(
-                            ancho_cuerpo / 2.0 - offset_x,
-                            y,
-                            0.22,
-                        ),
+                        Transform::from_xyz(x_box, y, 0.15),
                     ));
                     padre.spawn((
-                        Text2d::new(etq.clone()),
+                        Text2d::new(nom_out.clone()),
                         TextFont {
                             font_size: bevy::text::FontSize::Px(11.0),
                             ..default()
                         },
                         TextColor(config.col_etiqueta_texto),
-                        Transform::from_xyz(
-                            ancho_cuerpo / 2.0 - offset_x,
-                            y,
-                            0.25,
-                        ),
+                        Transform::from_xyz(x_box, y, 0.20),
                     ));
                 }
             }
@@ -1315,5 +1348,297 @@ pub fn crear_chip_personalizado(
     })
     .id();
 
-    (ent_chip, salidas_ent, entradas_ent)
+    (entidad_chip, salidas, entradas)
+}
+
+// ==========================================
+// Fichero: src/constructores.rs
+// Bloque: Bloque 10 (Función crear_conector_bus)
+// ==========================================
+// Constructor del Conector de Bus (N patillas a 25px, zona de agarre, punto rojo en Pin 0, giro 0..3, flecha y regulador +/-)
+pub fn crear_conector_bus(
+    commands: &mut Commands,
+    pos: Vec2,
+    datos_bus: DatosConectorBus,
+    config: &ConfigApp,
+) -> (Entity, Vec<Entity>, Vec<Entity>) {
+    let n = datos_bus.num_hilos.clamp(2, 16);
+    let sep = config.sep_pines_chip; // 25.0px
+    let alto_barra = (n as f32) * sep;
+    let ancho_barra = 22.0;
+    let inicio_y = (alto_barra / 2.0) - (sep * 0.5);
+
+    let angulo = (datos_bus.rotacion as f32) 
+        * std::f32::consts::FRAC_PI_2;
+    let mut trf_padre = Transform::from_xyz(pos.x, pos.y, 1.0);
+    trf_padre.rotation = Quat::from_rotation_z(angulo);
+
+    let mut salidas = Vec::new();
+    let mut entradas = Vec::new();
+
+    let tipo_patilla = match datos_bus.modo {
+        ModoDireccionBus::HaciaBus => TipoConector::Entrada,
+        ModoDireccionBus::DesdeBus => TipoConector::Salida,
+        ModoDireccionBus::Bidireccional => TipoConector::Salida,
+    };
+    let es_bidireccional = 
+        datos_bus.modo == ModoDireccionBus::Bidireccional;
+
+    let grosor_cuello = ((n as f32) * 2.0 + 4.0).clamp(12.0, 28.0);
+    let largo_cuello = 36.0;
+    let x_centro_cuello = ancho_barra / 2.0 + largo_cuello / 2.0;
+    let x_fin_cuello = ancho_barra / 2.0 + largo_cuello;
+
+    let ent_padre = commands.spawn((
+        Sprite {
+            color: Color::srgb(0.12, 0.14, 0.18),
+            custom_size: Some(Vec2::new(ancho_barra, alto_barra)),
+            ..default()
+        },
+        trf_padre,
+        NodoLogico {
+            tipo: TipoPuerta::ConectorBus,
+        },
+        DatosConectorBus {
+            num_hilos: n,
+            rotacion: datos_bus.rotacion % 4,
+            modo: datos_bus.modo,
+        },
+    ))
+    .id();
+
+    commands.entity(ent_padre).with_children(|padre| {
+        // 1. Interior blanco del cuerpo rectangular
+        padre.spawn((
+            Sprite {
+                color: Color::srgb(0.95, 0.96, 0.98),
+                custom_size: Some(Vec2::new(
+                    ancho_barra - 4.0, 
+                    alto_barra - 4.0
+                )),
+                ..default()
+            },
+            Transform::from_xyz(0.0, 0.0, 0.05),
+        ));
+
+        // 1B. ZONA DE AGARRE DIFERENCIADA en la franja derecha/central de la barra
+        let alto_agarre = (alto_barra - 22.0).max(24.0);
+        padre.spawn((
+            Sprite {
+                color: Color::srgb(0.72, 0.78, 0.86),
+                custom_size: Some(Vec2::new(10.0, alto_agarre)),
+                ..default()
+            },
+            Transform::from_xyz(3.0, 0.0, 0.09),
+        ))
+        .with_children(|agarre| {
+            // Muescas visuales de agarre (3 rayitas oscuras)
+            for dy in [-6.0f32, 0.0, 6.0] {
+                agarre.spawn((
+                    Sprite {
+                        color: Color::srgb(0.32, 0.38, 0.46),
+                        custom_size: Some(Vec2::new(6.0, 2.0)),
+                        ..default()
+                    },
+                    Transform::from_xyz(0.0, dy, 0.02),
+                ));
+            }
+        });
+
+        // 2. Punto ROJO indicador del Hilo 1 (Pin 0) en el extremo superior
+        padre.spawn((
+            Sprite {
+                color: Color::srgb(0.92, 0.15, 0.15),
+                custom_size: Some(Vec2::new(7.0, 7.0)),
+                ..default()
+            },
+            Transform::from_xyz(3.0, inicio_y, 0.15),
+        ));
+
+        // 3. Las N patillas en el borde izquierdo con paso de 25px
+        for i in 0..n {
+            let y = inicio_y - (i as f32 * sep);
+            let pos_pin = Vec3::new(-ancho_barra / 2.0 - 4.0, y, 0.20);
+
+            if tipo_patilla == TipoConector::Entrada {
+                let e_in = padre.spawn((
+                    bundle_conector(
+                        pos_pin, 
+                        TipoConector::Entrada, 
+                        config
+                    ),
+                    PinEntrada(i),
+                ))
+                .with_children(|con| {
+                    poblar_interior_conector(
+                        con, 
+                        TipoConector::Entrada, 
+                        config
+                    );
+                })
+                .id();
+                entradas.push(e_in);
+            } else if es_bidireccional {
+                // En modo "<->" la patilla tiene PinEntrada, PinSalida y ConectorBidireccional
+                let e_bi = padre.spawn((
+                    bundle_conector(
+                        pos_pin, 
+                        TipoConector::Salida, 
+                        config
+                    ),
+                    PinEntrada(i),
+                    PinSalida(i),
+                    ConectorBidireccional,
+                ))
+                .with_children(|con| {
+                    poblar_interior_conector(
+                        con, 
+                        TipoConector::Salida, 
+                        config
+                    );
+                })
+                .id();
+                salidas.push(e_bi);
+                entradas.push(e_bi);
+            } else {
+                let e_out = padre.spawn((
+                    bundle_conector(
+                        pos_pin, 
+                        TipoConector::Salida, 
+                        config
+                    ),
+                    PinSalida(i),
+                ))
+                .with_children(|con| {
+                    poblar_interior_conector(
+                        con, 
+                        TipoConector::Salida, 
+                        config
+                    );
+                })
+                .id();
+                salidas.push(e_out);
+            }
+        }
+
+        // 4. Cuello negro de salida hacia el Bus (con flecha de dirección)
+        padre.spawn((
+            Sprite {
+                color: Color::srgb(0.10, 0.12, 0.15),
+                custom_size: Some(Vec2::new(
+                    largo_cuello, 
+                    grosor_cuello
+                )),
+                ..default()
+            },
+            Transform::from_xyz(x_centro_cuello, 0.0, 0.08),
+            ControlFlechaBus {
+                nodo_padre: ent_padre,
+            },
+        ))
+        .with_children(|cuello| {
+            cuello.spawn((
+                Text2d::new(datos_bus.modo.texto_flecha()),
+                TextFont {
+                    font_size: bevy::text::FontSize::Px(13.0),
+                    ..default()
+                },
+                TextColor(Color::srgb(0.95, 0.85, 0.25)),
+                Transform::from_xyz(-3.0, 0.0, 0.20),
+            ));
+        });
+
+        // 5. Regulador interactivo [+] y [-]
+        let y_reg = grosor_cuello / 2.0 + 11.0;
+        padre.spawn((
+            Sprite {
+                color: Color::srgb(0.20, 0.45, 0.30),
+                custom_size: Some(Vec2::new(14.0, 14.0)),
+                ..default()
+            },
+            Transform::from_xyz(x_centro_cuello + 5.0, y_reg, 0.25),
+            BotonReguladorBus {
+                nodo_padre: ent_padre,
+                delta: 1,
+            },
+        ))
+        .with_children(|b| {
+            b.spawn((
+                Text2d::new("+"),
+                TextFont {
+                    font_size: bevy::text::FontSize::Px(13.0),
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+                Transform::from_xyz(0.0, 0.0, 0.1),
+            ));
+        });
+
+        padre.spawn((
+            Text2d::new(format!("{}", n)),
+            TextFont {
+                font_size: bevy::text::FontSize::Px(11.0),
+                ..default()
+            },
+            TextColor(Color::srgb(0.15, 0.20, 0.30)),
+            Transform::from_xyz(x_centro_cuello - 9.0, y_reg, 0.25),
+        ));
+
+        padre.spawn((
+            Sprite {
+                color: Color::srgb(0.50, 0.22, 0.22),
+                custom_size: Some(Vec2::new(14.0, 14.0)),
+                ..default()
+            },
+            Transform::from_xyz(x_centro_cuello + 5.0, -y_reg, 0.25),
+            BotonReguladorBus {
+                nodo_padre: ent_padre,
+                delta: -1,
+            },
+        ))
+        .with_children(|b| {
+            b.spawn((
+                Text2d::new("-"),
+                TextFont {
+                    font_size: bevy::text::FontSize::Px(13.0),
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+                Transform::from_xyz(0.0, 0.0, 0.1),
+            ));
+        });
+
+        // 6. Anillo circular de conexión al tronco del Bus
+        padre.spawn((
+            Sprite {
+                color: Color::srgb(0.10, 0.12, 0.15),
+                custom_size: Some(Vec2::new(16.0, 16.0)),
+                ..default()
+            },
+            Transform::from_xyz(x_fin_cuello, 0.0, 0.22),
+            PuertoTroncoBus {
+                nodo_padre: ent_padre,
+            },
+        ))
+        .with_children(|puerto| {
+            puerto.spawn((
+                Sprite {
+                    color: Color::WHITE,
+                    custom_size: Some(Vec2::new(10.0, 10.0)),
+                    ..default()
+                },
+                Transform::from_xyz(0.0, 0.0, 0.05),
+            ));
+            puerto.spawn((
+                Sprite {
+                    color: Color::srgb(0.10, 0.12, 0.15),
+                    custom_size: Some(Vec2::new(5.0, 5.0)),
+                    ..default()
+                },
+                Transform::from_xyz(0.0, 0.0, 0.10),
+            ));
+        });
+    });
+
+    (ent_padre, salidas, entradas)
 }

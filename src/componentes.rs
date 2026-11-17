@@ -6,17 +6,14 @@
 use bevy::prelude::*;
 
 // --- Bloque 2: Estados de la Aplicación ---
-#[derive(States, Default, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum ModoApp {
     #[default]
     Edicion,
     CreandoLinea,
 }
 
-// ==========================================
-// Fichero: src/componentes.rs
-// Bloque: Bloque 3: Recursos Globales
-// ==========================================
+// --- Bloque 3: Recursos Globales ---
 #[derive(Resource, Default)]
 pub struct EstadoCrearLinea {
     pub origen_entidad: Option<Entity>,
@@ -55,7 +52,7 @@ pub struct EstadoArrastreBarra {
     pub activo: Option<(BarraChip, ModoAjusteBarra)>,
 }
 
-// NUEVO: Controla el rectángulo de selección múltiple con arrastre de ratón izquierdo
+// Controla el rectángulo de selección múltiple con arrastre de ratón izquierdo
 #[derive(Resource, Default)]
 pub struct CajaSeleccion {
     pub activa: bool,
@@ -63,10 +60,7 @@ pub struct CajaSeleccion {
     pub actual: Vec2,
 }
 
-// ==========================================
-// Fichero: src/componentes.rs
-// Bloque: Bloque 4: Componentes de Nodos, Etiquetas y Chips
-// ==========================================
+// --- Bloque 4: Componentes de Nodos, Etiquetas, Buses y Chips ---
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TipoPuerta {
     And,
@@ -82,7 +76,57 @@ pub enum TipoPuerta {
     Reloj,
     Display7Seg,
     Display4Bits,
+    ConectorBus,
     Chip,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ModoDireccionBus {
+    #[default]
+    HaciaBus,      // "->" Las N patillas son Entradas que vuelcan al bus
+    DesdeBus,      // "<-" Las N patillas son Salidas que leen del bus
+    Bidireccional, // "<->" Híbrido
+}
+
+impl ModoDireccionBus {
+    pub fn siguiente(self) -> Self {
+        match self {
+            Self::HaciaBus => Self::DesdeBus,
+            Self::DesdeBus => Self::Bidireccional,
+            Self::Bidireccional => Self::HaciaBus,
+        }
+    }
+
+    pub fn texto_flecha(self) -> &'static str {
+        match self {
+            Self::HaciaBus => "->",
+            Self::DesdeBus => "<-",
+            Self::Bidireccional => "<->",
+        }
+    }
+
+    pub fn a_u8(self) -> u8 {
+        match self {
+            Self::HaciaBus => 0,
+            Self::DesdeBus => 1,
+            Self::Bidireccional => 2,
+        }
+    }
+
+    pub fn desde_u8(v: u8) -> Self {
+        match v {
+            1 => Self::DesdeBus,
+            2 => Self::Bidireccional,
+            _ => Self::HaciaBus,
+        }
+    }
+}
+
+#[derive(Component, Clone, Copy, Debug)]
+pub struct DatosConectorBus {
+    pub num_hilos: usize,
+    pub rotacion: u8, // 0 = Derecha (0°), 1 = Arriba (90°), 2 = Izquierda (180°), 3 = Abajo (270°)
+    pub modo: ModoDireccionBus,
 }
 
 #[derive(Component)]
@@ -199,13 +243,30 @@ pub struct SegmentoDisplay(pub usize);
 #[derive(Component)]
 pub struct CentroHueco;
 
-// Guarda el desplazamiento X e Y respecto al cursor para mover columnas o bloques seleccionados
+// Botón en el cuello del Conector de Bus donde se muestra la flecha (-> / <- / <->)
+#[derive(Component)]
+pub struct ControlFlechaBus {
+    pub nodo_padre: Entity,
+}
+
+// Botones [+] y [-] integrados en el Conector de Bus para regular el número de conexiones N
+#[derive(Component)]
+pub struct BotonReguladorBus {
+    pub nodo_padre: Entity,
+    pub delta: isize,
+}
+
+// Puerto circular en el extremo del cuello donde se conectará el cable grueso del Bus en el Paso 2
+#[derive(Component)]
+pub struct PuertoTroncoBus {
+    pub nodo_padre: Entity,
+}
+
 #[derive(Component)]
 pub struct Arrastrando {
     pub offset: Vec2,
 }
 
-// NUEVO: Marca los nodos que están dentro de la selección actual
 #[derive(Component)]
 pub struct Seleccionado;
 
@@ -226,7 +287,7 @@ pub struct CuadriculaFondo;
 
 // ==========================================
 // Fichero: src/componentes.rs
-// --- Bloque 6: Componentes de Conectores y Cables ---
+// Bloque: Bloque 6: Componentes de Conectores y Cables
 // ==========================================
 #[derive(Component, PartialEq, Eq, Clone, Copy)]
 pub enum TipoConector {
@@ -234,7 +295,12 @@ pub enum TipoConector {
     Salida,
 }
 
+// Marca las patillas de un Conector de Bus en modo "<->" para que admitan tanto
+// iniciar cables (como Salida) como recibir cables que vienen de otra Salida (como Entrada)
 #[derive(Component)]
+pub struct ConectorBidireccional;
+
+#[derive(Component, Default)]
 pub struct ValorSeñal(pub bool);
 
 #[derive(Component)]
@@ -244,10 +310,7 @@ pub struct Cable {
     pub puntos_intermedios: Vec<Vec2>,
 }
 
-// ==========================================
-// Fichero: src/componentes.rs
-// Bloque: Bloque 7: Componentes de Menús, Diálogos y Barras UI
-// ==========================================
+// --- Bloque 7: Componentes del Menú Contextual, Diálogos y Barras UI ---
 #[derive(Component)]
 pub struct MenuContextual {
     pub pos_creacion: Vec2,
@@ -263,6 +326,7 @@ pub enum CategoriaMenu {
     Puertas,
     Entradas,
     Salidas,
+    Bus,
     Chip,
     Archivo,
 }
@@ -271,6 +335,7 @@ pub enum CategoriaMenu {
 pub enum AccionMenu {
     AbrirCategoria(CategoriaMenu),
     CrearNodo(TipoPuerta),
+    CrearConectorBus(usize),
     AlternarBarrasChip,
     GuardarChip,
     GuardarCircuito,
@@ -286,8 +351,8 @@ pub struct BotonMenu {
 
 #[derive(Component)]
 pub struct DialogoArchivo {
+    pub texto_actual: String,
     pub es_chip: bool,
-    pub nombre: String,
 }
 
 #[derive(Component)]
@@ -296,7 +361,7 @@ pub struct TextoInputArchivo;
 #[derive(Component)]
 pub struct DialogoEtiquetaPin {
     pub nodo_objetivo: Entity,
-    pub texto: String,
+    pub texto_actual: String,
 }
 
 #[derive(Component)]
@@ -306,7 +371,7 @@ pub struct TextoInputEtiqueta;
 pub struct SelectorCarga;
 
 #[derive(Component)]
-pub struct BotonArchivoCir {
+pub struct BotonArchivoCarga {
     pub nombre_archivo: String,
     pub centro_mundo: Vec2,
 }
@@ -321,7 +386,6 @@ pub struct BotonChipInferior {
     pub x_max: f32,
 }
 
-// NUEVO: Botones [<] y [>] para deslizar la barra inferior de Chips
 #[derive(Component)]
 pub struct BotonScrollBarra {
     pub delta: isize,

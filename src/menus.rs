@@ -114,10 +114,27 @@ pub fn gestionar_clic_menu(
                 abrir_submenu(&mut commands, pos_base, cat);
                 return;
             }
+            AccionMenu::CrearConectorBus(num_hilos) => {
+                let (ent_bus, _, _) = crate::crear_conector_bus(
+                    &mut commands,
+                    pos_mundo,
+                    DatosConectorBus {
+                        num_hilos,
+                        rotacion: 0,
+                        modo: ModoDireccionBus::HaciaBus,
+                    },
+                    &config,
+                );
+                commands
+                    .entity(ent_bus)
+                    .insert(Arrastrando { offset: Vec2::ZERO });
+            }
             AccionMenu::CrearNodo(tipo) => {
                 let paso = if matches!(
                     tipo, 
-                    TipoPuerta::Interruptor | TipoPuerta::Led
+                    TipoPuerta::Interruptor 
+                    | TipoPuerta::Led
+                    | TipoPuerta::ConectorBus
                 ) {
                     config.paso_snap_io
                 } else {
@@ -194,6 +211,18 @@ pub fn gestionar_clic_menu(
                             &config,
                         );
                     }
+                    TipoPuerta::ConectorBus => {
+                        crate::crear_conector_bus(
+                            &mut commands,
+                            pos_snap,
+                            DatosConectorBus {
+                                num_hilos: 8,
+                                rotacion: 0,
+                                modo: ModoDireccionBus::HaciaBus,
+                            },
+                            &config,
+                        );
+                    }
                     TipoPuerta::Chip => {}
                 }
             }
@@ -240,10 +269,11 @@ pub fn abrir_menu_contextual(
     commands: &mut Commands, 
     pos_mundo: Vec2
 ) {
-    let items_principales: [(&str, AccionMenu); 6] = [
+    let items_principales: [(&str, AccionMenu); 7] = [
         ("Puertas     >>", AccionMenu::AbrirCategoria(CategoriaMenu::Puertas)),
         ("Entradas    >>", AccionMenu::AbrirCategoria(CategoriaMenu::Entradas)),
         ("Salidas     >>", AccionMenu::AbrirCategoria(CategoriaMenu::Salidas)),
+        ("Bus         >>", AccionMenu::AbrirCategoria(CategoriaMenu::Bus)),
         ("Chip        >>", AccionMenu::AbrirCategoria(CategoriaMenu::Chip)),
         ("Archivo     >>", AccionMenu::AbrirCategoria(CategoriaMenu::Archivo)),
         ("Limpiar Todo",   AccionMenu::LimpiarTodo),
@@ -328,6 +358,10 @@ fn abrir_submenu(
             ("Display 4-Bit", AccionMenu::CrearNodo(TipoPuerta::Display4Bits)),
             ("Display 7-Seg", AccionMenu::CrearNodo(TipoPuerta::Display7Seg)),
         ],
+        CategoriaMenu::Bus => vec![
+            ("Conector Bus 4", AccionMenu::CrearConectorBus(4)),
+            ("Conector Bus 8", AccionMenu::CrearConectorBus(8)),
+        ],
         CategoriaMenu::Chip => vec![
             ("Barras I/O",   AccionMenu::AlternarBarrasChip),
             ("Guardar .chp", AccionMenu::GuardarChip),
@@ -397,65 +431,49 @@ fn abrir_submenu(
 
 // ==========================================
 // Fichero: src/menus.rs
-// Bloque: Bloque 4: Constructores de las Barras Flotantes UI (Inferior y Superior)
+// Bloque: Bloque 4: Construcción de las Barras Flotantes UI (Inferior con Scroll y Superior)
 // ==========================================
 pub fn reconstruir_barra_inferior_chips(
     commands: &mut Commands,
-    q_barra_existente: &Query<Entity, With<BarraInferiorChips>>,
-    scroll_offset: usize,
+    q_barra_previa: &Query<Entity, With<BarraInferiorChips>>,
+    indice_inicio: usize,
 ) {
-    for ent in q_barra_existente.iter() {
+    for ent in q_barra_previa.iter() {
         commands.entity(ent).despawn();
     }
 
     let archivos_chp = listar_archivos_por_ext("chips", "chp");
-    let mut chips_validos = Vec::new();
-
-    for arch in archivos_chp {
-        let ruta_completa = format!("chips/{}", arch);
-        if let Some(datos) = leer_datos_chip_desde_chp(&ruta_completa) {
-            chips_validos.push((ruta_completa, datos.nombre));
-        }
-    }
+    let max_visibles = 8usize;
+    let total = archivos_chp.len();
+    let inicio = if total > 0 {
+        indice_inicio.min(total.saturating_sub(1))
+    } else {
+        0
+    };
+    let fin = (inicio + max_visibles).min(total);
 
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
             bottom: Val::Px(10.0),
-            left: Val::Px(16.0),
-            right: Val::Px(16.0),
+            left: Val::Px(20.0),
             height: Val::Px(42.0),
+            padding: UiRect::axes(Val::Px(10.0), Val::Px(5.0)),
+            column_gap: Val::Px(8.0),
             align_items: AlignItems::Center,
-            justify_content: JustifyContent::FlexStart,
-            column_gap: Val::Px(6.0),
-            padding: UiRect::horizontal(Val::Px(10.0)),
             ..default()
         },
-        BackgroundColor(Color::srgba(0.08, 0.09, 0.12, 0.92)),
+        BackgroundColor(Color::srgba(0.08, 0.10, 0.15, 0.94)),
         BarraInferiorChips,
     ))
     .with_children(|barra| {
-        // Etiqueta CHIPS (ancho 48px)
-        barra.spawn((
-            Node {
-                width: Val::Px(48.0),
-                ..default()
-            },
-            Text::new("CHIPS:"),
-            TextFont {
-                font_size: bevy::text::FontSize::Px(13.0),
-                ..default()
-            },
-            TextColor(Color::srgb(0.65, 0.75, 0.90)),
-        ));
+        let mut cursor_x = 30.0;
 
-        // Botón [<] para deslizar la barra hacia la izquierda
-        let x_izq_min = 16.0 + 10.0 + 48.0 + 6.0;
-        let x_izq_max = x_izq_min + 26.0;
+        let w_flecha = 32.0;
         barra.spawn((
             Node {
-                width: Val::Px(26.0),
-                height: Val::Px(28.0),
+                width: Val::Px(w_flecha),
+                height: Val::Px(30.0),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
                 ..default()
@@ -463,98 +481,68 @@ pub fn reconstruir_barra_inferior_chips(
             BackgroundColor(Color::srgb(0.16, 0.20, 0.28)),
             BotonScrollBarra {
                 delta: -1,
-                x_min: x_izq_min,
-                x_max: x_izq_max,
+                x_min: cursor_x,
+                x_max: cursor_x + w_flecha,
             },
         ))
         .with_children(|b| {
             b.spawn((
                 Text::new("<"),
                 TextFont {
-                    font_size: bevy::text::FontSize::Px(14.0),
+                    font_size: bevy::text::FontSize::Px(15.0),
                     ..default()
                 },
                 TextColor(Color::WHITE),
             ));
         });
+        cursor_x += w_flecha + 8.0;
 
-        // Botón [>] para deslizar la barra hacia la derecha
-        let x_der_min = x_izq_max + 6.0;
-        let x_der_max = x_der_min + 26.0;
-        barra.spawn((
-            Node {
-                width: Val::Px(26.0),
-                height: Val::Px(28.0),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            BackgroundColor(Color::srgb(0.16, 0.20, 0.28)),
-            BotonScrollBarra {
-                delta: 1,
-                x_min: x_der_min,
-                x_max: x_der_max,
-            },
-        ))
-        .with_children(|b| {
-            b.spawn((
-                Text::new(">"),
-                TextFont {
-                    font_size: bevy::text::FontSize::Px(14.0),
-                    ..default()
-                },
-                TextColor(Color::WHITE),
-            ));
-        });
-
-        if chips_validos.is_empty() {
+        if archivos_chp.is_empty() {
             barra.spawn((
-                Text::new(
-                    "(Carpeta chips/ vacia: usa Chip >> Guardar .chp para crear un Chip)"
-                ),
+                Text::new("Carpeta chips/ vacía (Usa Chip >> Guardar .chp)"),
                 TextFont {
-                    font_size: bevy::text::FontSize::Px(13.0),
+                    font_size: bevy::text::FontSize::Px(12.5),
                     ..default()
                 },
-                TextColor(Color::srgb(0.5, 0.52, 0.58)),
+                TextColor(Color::srgb(0.60, 0.65, 0.75)),
             ));
         } else {
-            let mut cursor_x = x_der_max + 6.0;
-            let gap = 6.0;
-            let inicio = scroll_offset.min(chips_validos.len().saturating_sub(1));
+            for ruta in &archivos_chp[inicio..fin] {
+                let nombre_mostrar = std::path::Path::new(ruta)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("CHIP")
+                    .to_uppercase();
 
-            for (archivo_chp, nombre_chip) in chips_validos.into_iter().skip(inicio) {
-                // Ancho compacto adaptado al nombre del chip
-                let ancho_btn = (nombre_chip.len() as f32 * 8.5 + 22.0).max(58.0);
-                // Evitamos que se salgan por el borde derecho de la ventana
-                if cursor_x + ancho_btn > 1240.0 {
-                    break;
-                }
+                let etiqueta_btn = format!("+{}", nombre_mostrar);
+                let ancho_btn = (
+                    etiqueta_btn.chars().count() as f32 * 8.5 + 22.0
+                ).max(74.0);
 
                 let x_min = cursor_x;
                 let x_max = cursor_x + ancho_btn;
-                cursor_x = x_max + gap;
+                cursor_x = x_max + 8.0;
 
                 barra.spawn((
                     Node {
                         width: Val::Px(ancho_btn),
-                        height: Val::Px(28.0),
+                        height: Val::Px(30.0),
                         justify_content: JustifyContent::Center,
                         align_items: AlignItems::Center,
                         ..default()
                     },
                     BackgroundColor(Color::srgb(0.20, 0.34, 0.50)),
-                    BotonChipInferior { 
-                        archivo_chp,
+                    BotonChipInferior {
+                        archivo_chp: ruta.clone(),
                         x_min,
                         x_max,
                     },
                 ))
                 .with_children(|btn| {
                     btn.spawn((
-                        Text::new(format!("+{}", nombre_chip)),
+                        Text::new(etiqueta_btn),
                         TextFont {
-                            font_size: bevy::text::FontSize::Px(12.0),
+                            font_size: bevy::text::FontSize::Px(12.5),
                             ..default()
                         },
                         TextColor(Color::WHITE),
@@ -562,6 +550,32 @@ pub fn reconstruir_barra_inferior_chips(
                 });
             }
         }
+
+        barra.spawn((
+            Node {
+                width: Val::Px(w_flecha),
+                height: Val::Px(30.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.16, 0.20, 0.28)),
+            BotonScrollBarra {
+                delta: 1,
+                x_min: cursor_x,
+                x_max: cursor_x + w_flecha,
+            },
+        ))
+        .with_children(|b| {
+            b.spawn((
+                Text::new(">"),
+                TextFont {
+                    font_size: bevy::text::FontSize::Px(15.0),
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+            ));
+        });
     });
 }
 
@@ -578,30 +592,35 @@ pub fn reconstruir_barra_superior_inspeccion(
         return;
     }
 
-    let ruta_migas: Vec<&str> = pila
+    let ruta_actual: Vec<String> = pila
         .niveles
         .iter()
-        .map(|(nom, _)| nom.as_str())
+        .map(|(arch, _)| {
+            std::path::Path::new(arch)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(arch.as_str())
+                .to_uppercase()
+        })
         .collect();
+
     let texto_ruta = format!(
-        "VIENDO INTERIOR DE: Principal > {}",
-        ruta_migas.join(" > ")
+        "INSPECCIONANDO: {}   (Usa [Ctrl+Z] para deshacer cambios)",
+        ruta_actual.join(" > ")
     );
 
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
             top: Val::Px(10.0),
-            left: Val::Px(16.0),
-            right: Val::Px(16.0),
-            height: Val::Px(44.0),
-            align_items: AlignItems::Center,
-            justify_content: JustifyContent::FlexStart,
+            left: Val::Px(20.0),
+            height: Val::Px(42.0),
+            padding: UiRect::axes(Val::Px(12.0), Val::Px(6.0)),
             column_gap: Val::Px(16.0),
-            padding: UiRect::horizontal(Val::Px(14.0)),
+            align_items: AlignItems::Center,
             ..default()
         },
-        BackgroundColor(Color::srgba(0.14, 0.10, 0.22, 0.94)),
+        BackgroundColor(Color::srgba(0.12, 0.14, 0.20, 0.95)),
         BarraSuperiorInspeccion,
     ))
     .with_children(|barra| {
@@ -617,11 +636,10 @@ pub fn reconstruir_barra_superior_inspeccion(
             BotonVolverInspeccion,
         ))
         .with_children(|btn| {
-            // Sin acento en ATRAS para evitar caracteres rotos en la fuente por defecto
             btn.spawn((
-                Text::new("< VOLVER ATRAS"),
+                Text::new("<< VOLVER AL CIRCUITO"),
                 TextFont {
-                    font_size: bevy::text::FontSize::Px(14.0),
+                    font_size: bevy::text::FontSize::Px(12.0),
                     ..default()
                 },
                 TextColor(Color::WHITE),
@@ -631,10 +649,10 @@ pub fn reconstruir_barra_superior_inspeccion(
         barra.spawn((
             Text::new(texto_ruta),
             TextFont {
-                font_size: bevy::text::FontSize::Px(14.0),
+                font_size: bevy::text::FontSize::Px(13.5),
                 ..default()
             },
-            TextColor(Color::srgb(0.90, 0.85, 1.0)),
+            TextColor(Color::srgb(0.95, 0.85, 0.45)),
         ));
     });
 }
