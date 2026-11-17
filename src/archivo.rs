@@ -1025,6 +1025,7 @@ fn guardar_en_disco(
     }
 }
 
+
 // ==========================================
 // Fichero: src/archivo.rs
 // Bloque: Bloque 10: Lógica de Lectura y Reconstrucción en Lienzo
@@ -1147,12 +1148,28 @@ pub fn reconstruir_circuito_desde_texto(
                     "XNOR" => crear_puerta(
                         commands, meshes, materials, pos, TipoPuerta::Xnor, config
                     ),
-                    "INT" => crear_interruptor(
-                        commands, meshes, materials, pos, est, etq_nodo, config
-                    ),
-                    "LED" => crear_led(
-                        commands, meshes, materials, pos, etq_nodo, config
-                    ),
+                    "INT" => {
+                        let (ent_i, s_i, e_i) = crear_interruptor(
+                            commands, meshes, materials, pos, est, etq_nodo, config
+                        );
+                        if tag_barra == "PIN_IN" {
+                            commands
+                                .entity(ent_i)
+                                .insert(PegadoABarra(BarraChip::IzquierdaEntradas));
+                        }
+                        (s_i, e_i)
+                    }
+                    "LED" => {
+                        let (ent_l, s_l, e_l) = crear_led(
+                            commands, meshes, materials, pos, etq_nodo, config
+                        );
+                        if tag_barra == "PIN_OUT" {
+                            commands
+                                .entity(ent_l)
+                                .insert(PegadoABarra(BarraChip::DerechaSalidas));
+                        }
+                        (s_l, e_l)
+                    }
                     "CLK" => crear_reloj(
                         commands, meshes, materials, pos, frec, config
                     ),

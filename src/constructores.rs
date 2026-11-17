@@ -512,7 +512,7 @@ pub fn crear_interruptor(
     estado_inicial: bool,
     etiqueta: &str,
     config: &ConfigApp,
-) -> (Option<Entity>, Vec<Entity>) {
+) -> (Entity, Option<Entity>, Vec<Entity>) {
     let color_inicial = if estado_inicial {
         config.col_estado_1
     } else {
@@ -528,15 +528,13 @@ pub fn crear_interruptor(
     };
     let ancho_caja = ancho_caja_etiqueta(&texto_etq);
 
-    // Cuerpo central de agarre más ancho (config.ancho_agarre_io) y compacto (config.alto_io)
     let w_agarre = config.ancho_agarre_io;
     let h_io = config.alto_io;
     let x_boton = -(w_agarre / 2.0 + 11.0);
     let x_salida = w_agarre / 2.0 + 6.0;
-    // Etiqueta situada a la IZQUIERDA del interruptor
     let x_etiqueta = x_boton - 16.0 - ancho_caja / 2.0;
 
-    commands.spawn((
+    let ent_int = commands.spawn((
         Sprite {
             color: config.col_puerta,
             custom_size: Some(Vec2::new(w_agarre, h_io)),
@@ -549,7 +547,6 @@ pub fn crear_interruptor(
         EtiquetaNodo(texto_etq.clone()),
     ))
     .with_children(|padre| {
-        // Rectángulo negro a la IZQUIERDA de la entrada
         padre.spawn((
             Sprite {
                 color: config.col_etiqueta_fondo,
@@ -561,7 +558,6 @@ pub fn crear_interruptor(
             FondoEtiquetaNodo,
         ));
 
-        // Texto verde claro a la IZQUIERDA de la entrada
         padre.spawn((
             Text2d::new(texto_etq),
             TextFont {
@@ -573,7 +569,6 @@ pub fn crear_interruptor(
             TextoEtiquetaNodo,
         ));
 
-        // Botón interactivo (0 / 1) con altura compacta h_io
         padre.spawn((
             Sprite {
                 color: color_inicial,
@@ -586,7 +581,6 @@ pub fn crear_interruptor(
             },
         ));
 
-        // Conector de Salida (con marco negro interior) a la derecha del cuerpo de agarre
         let e_out = padre.spawn(bundle_conector(
             Vec3::new(x_salida, 0.0, 0.1),
             TipoConector::Salida,
@@ -597,9 +591,10 @@ pub fn crear_interruptor(
         })
         .id();
         ent_salida = Some(e_out);
-    });
+    })
+    .id();
 
-    (ent_salida, Vec::new())
+    (ent_int, ent_salida, Vec::new())
 }
 
 // ==========================================
@@ -613,7 +608,7 @@ pub fn crear_led(
     pos: Vec2,
     etiqueta: &str,
     config: &ConfigApp,
-) -> (Option<Entity>, Vec<Entity>) {
+) -> (Entity, Option<Entity>, Vec<Entity>) {
     let mut entradas = Vec::new();
     let texto_etq = etiqueta.to_string();
     let vis_caja = if texto_etq.is_empty() {
@@ -623,15 +618,13 @@ pub fn crear_led(
     };
     let ancho_caja = ancho_caja_etiqueta(&texto_etq);
 
-    // Cuerpo central de agarre más ancho (config.ancho_agarre_io) y compacto (config.alto_io)
     let w_agarre = config.ancho_agarre_io;
     let h_io = config.alto_io;
     let x_entrada = -(w_agarre / 2.0 + 6.0);
     let x_led = w_agarre / 2.0 + 11.0;
-    // Etiqueta situada a la DERECHA de la salida (LED)
     let x_etiqueta = x_led + 16.0 + ancho_caja / 2.0;
 
-    commands.spawn((
+    let ent_led = commands.spawn((
         Sprite {
             color: config.col_puerta,
             custom_size: Some(Vec2::new(w_agarre, h_io)),
@@ -644,7 +637,6 @@ pub fn crear_led(
         EtiquetaNodo(texto_etq.clone()),
     ))
     .with_children(|padre| {
-        // Rectángulo negro a la DERECHA del LED
         padre.spawn((
             Sprite {
                 color: config.col_etiqueta_fondo,
@@ -656,7 +648,6 @@ pub fn crear_led(
             FondoEtiquetaNodo,
         ));
 
-        // Texto verde claro a la DERECHA del LED
         padre.spawn((
             Text2d::new(texto_etq),
             TextFont {
@@ -668,7 +659,6 @@ pub fn crear_led(
             TextoEtiquetaNodo,
         ));
 
-        // Indicador luminoso a la derecha con altura compacta h_io
         padre.spawn((
             Sprite {
                 color: config.col_estado_0,
@@ -679,7 +669,6 @@ pub fn crear_led(
             IndicadorLed,
         ));
 
-        // Conector de Entrada a la izquierda del cuerpo de agarre
         let e_in = padre.spawn((
             bundle_conector(
                 Vec3::new(x_entrada, 0.0, 0.1),
@@ -693,10 +682,12 @@ pub fn crear_led(
         })
         .id();
         entradas.push(e_in);
-    });
+    })
+    .id();
 
-    (None, entradas)
+    (ent_led, None, entradas)
 }
+
 
 // ==========================================
 // Fichero: src/constructores.rs
