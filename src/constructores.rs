@@ -1368,8 +1368,12 @@ pub fn crear_conector_bus(
     let ancho_barra = 22.0;
     let inicio_y = (alto_barra / 2.0) - (sep * 0.5);
 
-    let angulo = (datos_bus.rotacion as f32) 
-        * std::f32::consts::FRAC_PI_2;
+    let rot = datos_bus.rotacion % 4;
+    // Si está girado 180° (2) o 270° (3), invertimos el eje Y local para que el Pin 0 (punto rojo)
+    // siga quedando arriba/izquierda en pantalla y los cables no se crucen.
+    let signo_y = if rot == 2 || rot == 3 { -1.0 } else { 1.0 };
+
+    let angulo = (rot as f32) * std::f32::consts::FRAC_PI_2;
     let mut trf_padre = Transform::from_xyz(pos.x, pos.y, 1.0);
     trf_padre.rotation = Quat::from_rotation_z(angulo);
 
@@ -1401,7 +1405,7 @@ pub fn crear_conector_bus(
         },
         DatosConectorBus {
             num_hilos: n,
-            rotacion: datos_bus.rotacion % 4,
+            rotacion: rot,
             modo: datos_bus.modo,
         },
     ))
@@ -1421,7 +1425,7 @@ pub fn crear_conector_bus(
             Transform::from_xyz(0.0, 0.0, 0.05),
         ));
 
-        // 1B. ZONA DE AGARRE DIFERENCIADA en la franja derecha/central de la barra
+        // 1B. ZONA DE AGARRE DIFERENCIADA
         let alto_agarre = (alto_barra - 22.0).max(24.0);
         padre.spawn((
             Sprite {
@@ -1432,7 +1436,6 @@ pub fn crear_conector_bus(
             Transform::from_xyz(3.0, 0.0, 0.09),
         ))
         .with_children(|agarre| {
-            // Muescas visuales de agarre (3 rayitas oscuras)
             for dy in [-6.0f32, 0.0, 6.0] {
                 agarre.spawn((
                     Sprite {
@@ -1445,19 +1448,19 @@ pub fn crear_conector_bus(
             }
         });
 
-        // 2. Punto ROJO indicador del Hilo 1 (Pin 0) en el extremo superior
+        // 2. Punto ROJO indicador del Hilo 1 (Pin 0) siempre en el extremo del Pin 0
         padre.spawn((
             Sprite {
                 color: Color::srgb(0.92, 0.15, 0.15),
                 custom_size: Some(Vec2::new(7.0, 7.0)),
                 ..default()
             },
-            Transform::from_xyz(3.0, inicio_y, 0.15),
+            Transform::from_xyz(3.0, inicio_y * signo_y, 0.15),
         ));
 
-        // 3. Las N patillas en el borde izquierdo con paso de 25px
+        // 3. Las N patillas en el borde con paso de 25px
         for i in 0..n {
-            let y = inicio_y - (i as f32 * sep);
+            let y = (inicio_y - (i as f32 * sep)) * signo_y;
             let pos_pin = Vec3::new(-ancho_barra / 2.0 - 4.0, y, 0.20);
 
             if tipo_patilla == TipoConector::Entrada {
@@ -1479,7 +1482,6 @@ pub fn crear_conector_bus(
                 .id();
                 entradas.push(e_in);
             } else if es_bidireccional {
-                // En modo "<->" la patilla tiene PinEntrada, PinSalida y ConectorBidireccional
                 let e_bi = padre.spawn((
                     bundle_conector(
                         pos_pin, 
@@ -1522,6 +1524,21 @@ pub fn crear_conector_bus(
         }
 
         // 4. Cuello negro de salida hacia el Bus (con flecha de dirección)
+        let mut trf_texto_flecha = Transform::from_xyz(-3.0, 0.0, 0.20);
+        if rot == 2 {
+            trf_texto_flecha.rotation = 
+                Quat::from_rotation_z(std::f32::consts::PI);
+        }
+        let txt_flecha = if rot == 2 {
+            match datos_bus.modo {
+                ModoDireccionBus::HaciaBus => "<-",
+                ModoDireccionBus::DesdeBus => "->",
+                ModoDireccionBus::Bidireccional => "<->",
+            }
+        } else {
+            datos_bus.modo.texto_flecha()
+        };
+
         padre.spawn((
             Sprite {
                 color: Color::srgb(0.10, 0.12, 0.15),
@@ -1538,18 +1555,18 @@ pub fn crear_conector_bus(
         ))
         .with_children(|cuello| {
             cuello.spawn((
-                Text2d::new(datos_bus.modo.texto_flecha()),
+                Text2d::new(txt_flecha),
                 TextFont {
                     font_size: bevy::text::FontSize::Px(13.0),
                     ..default()
                 },
                 TextColor(Color::srgb(0.95, 0.85, 0.25)),
-                Transform::from_xyz(-3.0, 0.0, 0.20),
+                trf_texto_flecha,
             ));
         });
 
         // 5. Regulador interactivo [+] y [-]
-        let y_reg = grosor_cuello / 2.0 + 11.0;
+        let y_reg = (grosor_cuello / 2.0 + 11.0) * signo_y;
         padre.spawn((
             Sprite {
                 color: Color::srgb(0.20, 0.45, 0.30),
