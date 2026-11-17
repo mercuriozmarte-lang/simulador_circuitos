@@ -38,10 +38,15 @@ pub fn actualizar_relojes(
     }
 }
 
-// --- Bloque 2: Propagación de Señales y Limpieza de Cables ---
+// ==========================================
+// Fichero: src/logica.rs
+// Bloque: Bloque 2: Propagación de Señales y Redes de Bus Multipunto
+// ==========================================
 pub fn limpiar_cables_huerfanos(
     q_cables: Query<(Entity, &Cable)>,
+    q_cables_bus: Query<(Entity, &CableBus)>,
     q_conectores: Query<Entity, With<TipoConector>>,
+    q_nodos: Query<Entity, With<NodoLogico>>,
     mut commands: Commands,
 ) {
     for (ent_cable, cable) in q_cables.iter() {
@@ -51,28 +56,153 @@ pub fn limpiar_cables_huerfanos(
             commands.entity(ent_cable).despawn();
         }
     }
+
+    for (ent_cb, cb) in q_cables_bus.iter() {
+        if !q_nodos.contains(cb.origen_nodo) 
+            || !q_nodos.contains(cb.destino_nodo) 
+        {
+            commands.entity(ent_cb).despawn();
+        }
+    }
 }
 
 pub fn propagar_cables(
     q_cables: Query<&Cable>,
-    mut q_conectores: Query<(&TipoConector, &mut ValorSeñal)>,
+    mut q_cables_bus: Query<&mut CableBus>,
+    q_nodos_bus: Query<(Entity, &DatosConectorBus, &Children)>,
+    q_pines_in: Query<&PinEntrada>,
+    q_pines_out: Query<&PinSalida>,
+    mut q_conectores: Query<(
+        &TipoConector, 
+        &mut ValorSeñal,
+        Option<&ConectorBidireccional>,
+    )>,
 ) {
-    for (tipo, mut val) in q_conectores.iter_mut() {
-        if *tipo == TipoConector::Entrada {
+    // 1. Poner a false todas las entradas normales y las patillas bidireccionales
+    for (tipo, mut val, opt_bi) in q_conectores.iter_mut() {
+        if *tipo == TipoConector::Entrada || opt_bi.is_some() {
             val.0 = false;
         }
     }
 
+    // 1B. Limpiar también a false todas las patillas de salida de los Conectores de Bus
+    //     para que no retengan el estado '1' de fotogramas anteriores
+    for (_, _, hijos) in q_nodos_bus.iter() {
+        for hijo in hijos.iter() {
+            if let Ok((_, mut val_pin, _)) = q_conectores.get_mut(hijo) {
+                val_pin.0 = false;
+            }
+        }
+    }
+
+    // 2. Propagar cables simples desde los componentes hacia las entradas (y hacia conectores de bus)
+    for cable in q_cables.iter() {
+        let es_origen_bi = q_conectores
+            .get(cable.origen)
+            .map(|(_, _, b)| b.is_some())
+            .unwrap_or(false);
+        if es_origen_bi {
+            continue;
+        }
+
+        let valor_origen = q_conectores
+            .get(cable.origen)
+            .map(|(_, v, _)| v.0)
+            .unwrap_or(false);
+
+        if let Ok((_, mut val_destino, _)) = 
+            q_conectores.get_mut(cable.destino) 
+        {
+            val_destino.0 |= valor_origen;
+        }
+    }
+
+    // 3. Recolectar las N señales que cada Conector de Bus inyecta al Bus (Modo "->" o "<->")
+    let mut mapa_aportacion: std::collections::HashMap<Entity, Vec<bool>> = 
+        std::collections::HashMap::new();
+
+    for (ent_bus, datos_b, hijos) in q_nodos_bus.iter() {
+        let n = datos_b.num_hilos.max(2);
+        let mut bits = vec![false; n];
+
+        if datos_b.modo != ModoDireccionBus::DesdeBus {
+            for hijo in hijos.iter() {
+                if let Ok(pin_in) = q_pines_in.get(hijo) {
+                    if pin_in.0 < n {
+                        let v = q_conectores
+                            .get(hijo)
+                            .map(|(_, val, _)| val.0)
+                            .unwrap_or(false);
+                        bits[pin_in.0] |= v;
+                    }
+                }
+            }
+        }
+        mapa_aportacion.insert(ent_bus, bits);
+    }
+
+    // 4. Igualar todos los Conectores de Bus unidos por CableBus (soporta árboles y derivaciones en T)
+    for _ in 0..6 {
+        for cb in q_cables_bus.iter() {
+            let n = cb.num_hilos.max(2);
+            let a = mapa_aportacion
+                .get(&cb.origen_nodo)
+                .cloned()
+                .unwrap_or_else(|| vec![false; n]);
+            let b = mapa_aportacion
+                .get(&cb.destino_nodo)
+                .cloned()
+                .unwrap_or_else(|| vec![false; n]);
+
+            let mut combinado = vec![false; n];
+            for i in 0..n {
+                let va = a.get(i).copied().unwrap_or(false);
+                let vb = b.get(i).copied().unwrap_or(false);
+                combinado[i] = va || vb;
+            }
+
+            mapa_aportacion.insert(cb.origen_nodo, combinado.clone());
+            mapa_aportacion.insert(cb.destino_nodo, combinado);
+        }
+    }
+
+    // 5. Actualizar los colores verde/rojo de cada CableBus y volcar a las patillas de salida ("<-" y "<->")
+    for mut cb in q_cables_bus.iter_mut() {
+        if let Some(estados_red) = mapa_aportacion.get(&cb.origen_nodo) {
+            cb.estados = estados_red.clone();
+        }
+    }
+
+    for (ent_bus, datos_b, hijos) in q_nodos_bus.iter() {
+        if datos_b.modo == ModoDireccionBus::HaciaBus {
+            continue;
+        }
+        let Some(estados_red) = mapa_aportacion.get(&ent_bus) else {
+            continue;
+        };
+        for hijo in hijos.iter() {
+            if let Ok(pin_out) = q_pines_out.get(hijo) {
+                let bit = estados_red
+                    .get(pin_out.0)
+                    .copied()
+                    .unwrap_or(false);
+                if let Ok((_, mut val_pin, _)) = q_conectores.get_mut(hijo) {
+                    val_pin.0 |= bit;
+                }
+            }
+        }
+    }
+
+    // 6. Propagar cables simples que salen desde patillas de Conectores de Bus hacia otros nodos
     for cable in q_cables.iter() {
         let valor_origen = q_conectores
             .get(cable.origen)
-            .map(|(_, v)| v.0)
+            .map(|(_, v, _)| v.0)
             .unwrap_or(false);
 
-        if let Ok((_, mut val_destino)) = 
+        if let Ok((_, mut val_destino, _)) = 
             q_conectores.get_mut(cable.destino) 
         {
-            // Acumulación con |= para permitir buses compartidos gobernados por Tri-State Buffers
             val_destino.0 |= valor_origen;
         }
     }
@@ -303,7 +433,10 @@ pub fn evaluar_puertas(
     }
 }
 
-// --- Bloque 4: Simulación Recursiva con Memoria Persistente y Tri-State ("TRI") ---
+// ==========================================
+// Fichero: src/logica.rs
+// Bloque: Bloque 4: Simulación Recursiva con Memoria Persistente, Tri-State y Buses Internos
+// ==========================================
 fn simular_red_chip(
     datos: &DatosChip,
     memoria: &mut EstadoRedChip,
@@ -353,6 +486,28 @@ fn simular_red_chip(
 
             let cod = datos.nodos[i].cod_tipo.as_str();
 
+            if let Some(cfg_bus) = cod.strip_prefix("BUS:") {
+                let p_b: Vec<&str> = cfg_bus.split(':').collect();
+                let n_hilos: usize = p_b
+                    .first()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(8);
+                let modo_u8: u8 = p_b
+                    .get(2)
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
+
+                if memoria.salidas_nodos[i].len() < n_hilos {
+                    memoria.salidas_nodos[i].resize(n_hilos, false);
+                }
+                if modo_u8 != 1 {
+                    for k in 0..n_hilos {
+                        memoria.salidas_nodos[i][k] = in_pines[k];
+                    }
+                }
+                continue;
+            }
+
             if let Some(sub_datos) = &datos.nodos[i].sub_chip {
                 if memoria.sub_redes[i].is_none() {
                     memoria.sub_redes[i] = Some(Box::new(
@@ -390,6 +545,21 @@ fn simular_red_chip(
                 memoria.salidas_nodos[i].push(res);
             } else {
                 memoria.salidas_nodos[i][0] = res;
+            }
+        }
+
+        // Propagar uniones entre Conectores de Bus internos del chip (CABLE_BUS)
+        for &(b_orig, b_dest) in datos.cables_bus.iter() {
+            if b_orig < n_nodos && b_dest < n_nodos {
+                let len = memoria.salidas_nodos[b_orig]
+                    .len()
+                    .min(memoria.salidas_nodos[b_dest].len());
+                for k in 0..len {
+                    let comb = memoria.salidas_nodos[b_orig][k]
+                        || memoria.salidas_nodos[b_dest][k];
+                    memoria.salidas_nodos[b_orig][k] = comb;
+                    memoria.salidas_nodos[b_dest][k] = comb;
+                }
             }
         }
     }

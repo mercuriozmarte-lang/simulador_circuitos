@@ -1,7 +1,8 @@
 // ==========================================
 // Fichero: src/raton.rs
-// Bloque: Bloque 1: Importaciones
 // ==========================================
+
+// --- Bloque 1: Importaciones ---
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use crate::componentes::*;
@@ -21,7 +22,7 @@ use crate::{
 
 // ==========================================
 // Fichero: src/raton.rs
-// Bloque: Bloque 2: Detectar Clic Izquierdo, Conector de Bus (Agarre, Giro R, Flecha F, +/- y Modo <->)
+// Bloque: Bloque 2: Detectar Clic Izquierdo, Trazado de Cables y Buses, Conector de Bus y Selección
 // ==========================================
 pub fn detectar_clic_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
@@ -40,25 +41,30 @@ pub fn detectar_clic_nodo(
             With<SelectorCarga>
         )>
     >,
-    q_nodos: Query<
-        (
+    // Agrupamos las consultas de lectura del circuito en una tupla para no superar los 16 parámetros de Bevy
+    consultas_circuito: (
+        Query<
+            (
+                Entity, 
+                &Transform, 
+                &NodoLogico, 
+                Option<&InstanciaChip>,
+                Option<&DatosConectorBus>,
+                Option<&Arrastrando>,
+                Option<&Seleccionado>,
+            ), 
+            With<NodoLogico>
+        >,
+        Query<(
             Entity, 
-            &Transform, 
-            &NodoLogico, 
-            Option<&InstanciaChip>,
-            Option<&DatosConectorBus>,
-            Option<&Arrastrando>,
-            Option<&Seleccionado>,
-        ), 
-        With<NodoLogico>
-    >,
-    q_conectores: Query<(
-        Entity, 
-        &GlobalTransform, 
-        &TipoConector,
-        Option<&ConectorBidireccional>,
-    )>,
-    q_cables: Query<(Entity, &Cable)>,
+            &GlobalTransform, 
+            &TipoConector,
+            Option<&ConectorBidireccional>,
+        )>,
+        Query<(&GlobalTransform, &PuertoTroncoBus)>,
+        Query<(Entity, &Cable)>,
+        Query<(Entity, &CableBus)>,
+    ),
     controles_nodos: (
         Query<
             (&GlobalTransform, &mut BotonInterruptor, &mut Sprite),
@@ -105,6 +111,14 @@ pub fn detectar_clic_nodo(
     ) else {
         return;
     };
+
+    let (
+        ref q_nodos,
+        ref q_conectores,
+        ref q_puertos_bus,
+        ref q_cables,
+        ref q_cables_bus,
+    ) = consultas_circuito;
 
     let (
         ref mut commands, 
@@ -405,33 +419,108 @@ pub fn detectar_clic_nodo(
     ) = controles_nodos;
 
     if *estado_app.get() == ModoApp::CreandoLinea {
-        for (ent_destino, g_trf, tipo, opt_bi) in q_conectores.iter() {
-            let pos_conector = g_trf.translation().truncate();
-            if pos_mundo.distance(pos_conector) < config.rad_clic_con {
-                // Acepta conectores de Entrada o conectores Bidireccionales ("<->")
-                if *tipo == TipoConector::Entrada || opt_bi.is_some() {
-                    if let Some(orig) = estado_linea.origen_entidad {
-                        if orig != ent_destino {
-                            let duplicado = q_cables
-                                .iter()
-                                .any(|(_, c)| {
-                                    c.origen == orig && c.destino == ent_destino
-                                });
+        if estado_linea.es_bus {
+            let n_bus = estado_linea.num_hilos_bus.max(2);
 
-                            if !duplicado {
-                                commands.spawn(Cable {
-                                    origen: orig,
-                                    destino: ent_destino,
+            // A) ¿Clic sobre el anillo circular (PuertoTroncoBus) de otro Conector de Bus?
+            for (g_trf, puerto_dest) in q_puertos_bus.iter() {
+                let pos_puerto = g_trf.translation().truncate();
+                if pos_mundo.distance(pos_puerto) < 16.0 {
+                    if let Some(orig_nodo) = estado_linea.origen_entidad {
+                        if orig_nodo != puerto_dest.nodo_padre {
+                            let n_dest = q_nodos
+                                .get(puerto_dest.nodo_padre)
+                                .ok()
+                                .and_then(|(_, _, _, _, opt_b, _, _)| {
+                                    opt_b.map(|b| b.num_hilos)
+                                })
+                                .unwrap_or(0);
+
+                            if n_dest == n_bus {
+                                commands.spawn(CableBus {
+                                    origen_nodo: orig_nodo,
+                                    destino_nodo: puerto_dest.nodo_padre,
                                     puntos_intermedios: estado_linea
                                         .puntos_intermedios
                                         .clone(),
+                                    num_hilos: n_bus,
+                                    estados: vec![false; n_bus],
                                 });
                             }
                         }
                     }
                     estado_linea.puntos_intermedios.clear();
+                    estado_linea.es_bus = false;
                     next_state.set(ModoApp::Edicion);
                     return;
+                }
+            }
+
+            // B) ¿Clic sobre un CODO existente de otro CableBus (Unión en "T" al tronco del Bus)?
+            for (_, cb_existente) in q_cables_bus.iter() {
+                if cb_existente.num_hilos != n_bus {
+                    continue;
+                }
+                for (idx_codo, &pos_codo) in cb_existente
+                    .puntos_intermedios
+                    .iter()
+                    .enumerate() 
+                {
+                    if pos_mundo.distance(pos_codo) < 14.0 {
+                        if let Some(orig_nodo) = estado_linea.origen_entidad {
+                            let mut nuevos_codos = estado_linea
+                                .puntos_intermedios
+                                .clone();
+                            nuevos_codos.push(pos_codo);
+                            for k in (0..idx_codo).rev() {
+                                nuevos_codos.push(
+                                    cb_existente.puntos_intermedios[k]
+                                );
+                            }
+                            commands.spawn(CableBus {
+                                origen_nodo: orig_nodo,
+                                destino_nodo: cb_existente.origen_nodo,
+                                puntos_intermedios: nuevos_codos,
+                                num_hilos: n_bus,
+                                estados: vec![false; n_bus],
+                            });
+                        }
+                        estado_linea.puntos_intermedios.clear();
+                        estado_linea.es_bus = false;
+                        next_state.set(ModoApp::Edicion);
+                        return;
+                    }
+                }
+            }
+        } else {
+            for (ent_destino, g_trf, tipo, opt_bi) in q_conectores.iter() {
+                let pos_conector = g_trf.translation().truncate();
+                if pos_mundo.distance(pos_conector) < config.rad_clic_con {
+                    if *tipo == TipoConector::Entrada || opt_bi.is_some() {
+                        if let Some(orig) = estado_linea.origen_entidad {
+                            if orig != ent_destino {
+                                let duplicado = q_cables
+                                    .iter()
+                                    .any(|(_, c)| {
+                                        c.origen == orig 
+                                            && c.destino == ent_destino
+                                    });
+
+                                if !duplicado {
+                                    commands.spawn(Cable {
+                                        origen: orig,
+                                        destino: ent_destino,
+                                        puntos_intermedios: estado_linea
+                                            .puntos_intermedios
+                                            .clone(),
+                                    });
+                                }
+                            }
+                        }
+                        estado_linea.puntos_intermedios.clear();
+                        next_state.set(ModoApp::Edicion);
+                        return;
+                    }
                 }
             }
         }
@@ -480,6 +569,24 @@ pub fn detectar_clic_nodo(
             }
         }
         return;
+    }
+
+    // 0E-0. Clic sobre el anillo circular (PuertoTroncoBus) de un Conector de Bus
+    for (g_trf, puerto_bus) in q_puertos_bus.iter() {
+        let pos_puerto = g_trf.translation().truncate();
+        if pos_mundo.distance(pos_puerto) < 14.0 {
+            if let Ok((_, _, _, _, Some(&datos_b), _, _)) = 
+                q_nodos.get(puerto_bus.nodo_padre) 
+            {
+                estado_linea.origen_entidad = Some(puerto_bus.nodo_padre);
+                estado_linea.origen_pos = pos_puerto;
+                estado_linea.puntos_intermedios.clear();
+                estado_linea.es_bus = true;
+                estado_linea.num_hilos_bus = datos_b.num_hilos;
+                next_state.set(ModoApp::CreandoLinea);
+                return;
+            }
+        }
     }
 
     // 0E-1. Clic sobre los botones [+] / [-] del Conector de Bus
@@ -555,7 +662,7 @@ pub fn detectar_clic_nodo(
         }
     }
 
-    // 1. Prioridad 1: Clic en conector de Salida (o Bidireccional "<->") para empezar un cable
+    // 1. Prioridad 1: Clic en conector de Salida (o Bidireccional "<->") para empezar un cable normal
     for (ent_conector, g_trf, tipo, opt_bi) in q_conectores.iter() {
         let pos_conector = g_trf.translation().truncate();
         if pos_mundo.distance(pos_conector) < config.rad_clic_con {
@@ -563,13 +670,27 @@ pub fn detectar_clic_nodo(
                 estado_linea.origen_entidad = Some(ent_conector);
                 estado_linea.origen_pos = pos_conector;
                 estado_linea.puntos_intermedios.clear();
+                estado_linea.es_bus = false;
                 next_state.set(ModoApp::CreandoLinea);
                 return; 
             }
         }
     }
 
-    // 1B. Clic sobre un codo de cable
+    // 1B. Clic sobre un codo de cable normal o de CableBus
+    let mut codos_bus_en_punto = Vec::new();
+    for (ent_cb, cb) in q_cables_bus.iter() {
+        for (idx, &pos_codo) in cb.puntos_intermedios.iter().enumerate() {
+            if pos_mundo.distance(pos_codo) < 12.0 {
+                codos_bus_en_punto.push((ent_cb, idx));
+            }
+        }
+    }
+    if !codos_bus_en_punto.is_empty() {
+        codo_arrastrado.seleccion_bus = codos_bus_en_punto;
+        return;
+    }
+
     for (ent_cable, cable) in q_cables.iter() {
         for (idx, &pos_codo) in cable.puntos_intermedios.iter().enumerate() {
             if pos_mundo.distance(pos_codo) < 10.0 {
@@ -645,7 +766,6 @@ pub fn detectar_clic_nodo(
                 && (pos_mundo.y - centro_nodo.y).abs() 
                     <= (config.alto_io / 2.0 + 2.0)
         } else if nodo.tipo == TipoPuerta::ConectorBus {
-            // Detección rotada sobre la barra blanca de agarre del Conector de Bus
             let n_hilos = opt_bus.map(|b| b.num_hilos).unwrap_or(8);
             let rot = opt_bus.map(|b| b.rotacion % 4).unwrap_or(0);
             let semialto = (n_hilos as f32 * config.sep_pines_chip) / 2.0;
@@ -688,6 +808,7 @@ pub fn detectar_clic_nodo(
     caja_sel.actual = pos_mundo;
 }
 
+
 // ==========================================
 // Fichero: src/raton.rs
 // Bloque: Bloque 3: Soltar Ratón, Cerrar Rectángulo de Selección, Snap e Imantar a Barras
@@ -695,7 +816,7 @@ pub fn detectar_clic_nodo(
 pub fn soltar_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
     q_nodos_todos: Query<
-        (Entity, &Transform), 
+        (Entity, &Transform, Option<&DatosConectorBus>), 
         (With<NodoLogico>, Without<Arrastrando>)
     >,
     mut q_arrastrando: Query<
@@ -706,30 +827,52 @@ pub fn soltar_nodo(
         (&Transform, &Sprite, &BarraChip), 
         Without<Arrastrando>
     >,
-    q_conectores: Query<(
-        Entity, 
-        &GlobalTransform, 
-        &TipoConector,
-        Option<&ConectorBidireccional>,
-    )>,
-    mut q_cables: Query<&mut Cable>,
+    // Agrupamos conectores y cables en una tupla para mantenernos por debajo de los 16 parámetros
+    mut consultas_cables: (
+        Query<(
+            Entity, 
+            &GlobalTransform, 
+            &TipoConector,
+            Option<&ConectorBidireccional>,
+        )>,
+        Query<(&GlobalTransform, &PuertoTroncoBus)>,
+        Query<&mut Cable>,
+        Query<&mut CableBus>,
+    ),
     q_windows: Query<&Window, With<PrimaryWindow>>,
     q_camera: Query<
         (&Camera, &GlobalTransform), 
         With<CamaraPrincipal>
     >,
     estado_app: Res<State<ModoApp>>,
-    mut estado_linea: ResMut<EstadoCrearLinea>,
-    mut codo_arrastrado: ResMut<CodoArrastrado>,
-    mut arrastre_barra: ResMut<EstadoArrastreBarra>,
-    mut caja_sel: ResMut<CajaSeleccion>,
-    mut next_state: ResMut<NextState<ModoApp>>,
+    mut estados_soltar: (
+        ResMut<EstadoCrearLinea>,
+        ResMut<CodoArrastrado>,
+        ResMut<EstadoArrastreBarra>,
+        ResMut<CajaSeleccion>,
+        ResMut<NextState<ModoApp>>,
+    ),
     mut commands: Commands,
     config: Res<ConfigApp>,
 ) {
     if !buttons.just_released(MouseButton::Left) {
         return;
     }
+
+    let (
+        ref q_conectores,
+        ref q_puertos_bus,
+        ref mut q_cables,
+        ref mut q_cables_bus,
+    ) = consultas_cables;
+
+    let (
+        ref mut estado_linea,
+        ref mut codo_arrastrado,
+        ref mut arrastre_barra,
+        ref mut caja_sel,
+        ref mut next_state,
+    ) = estados_soltar;
 
     if caja_sel.activa {
         caja_sel.activa = false;
@@ -739,7 +882,7 @@ pub fn soltar_nodo(
         let max_y = caja_sel.inicio.y.max(caja_sel.actual.y);
 
         if (max_x - min_x) > 6.0 || (max_y - min_y) > 6.0 {
-            for (ent, trf) in q_nodos_todos.iter() {
+            for (ent, trf, _) in q_nodos_todos.iter() {
                 let p = trf.translation.truncate();
                 if p.x >= min_x 
                     && p.x <= max_x 
@@ -762,6 +905,19 @@ pub fn soltar_nodo(
         if pos_cur.y >= (window.height() - 56.0) {
             return;
         }
+    }
+
+    if !codo_arrastrado.seleccion_bus.is_empty() {
+        let paso_codo = config.paso_snap_codo;
+        for (ent_cb, idx) in codo_arrastrado.seleccion_bus.drain(..) {
+            if let Ok(mut cb) = q_cables_bus.get_mut(ent_cb) {
+                if let Some(codo) = cb.puntos_intermedios.get_mut(idx) {
+                    codo.x = (codo.x / paso_codo).round() * paso_codo;
+                    codo.y = (codo.y / paso_codo).round() * paso_codo;
+                }
+            }
+        }
+        return;
     }
 
     if let Some((ent_cable, idx)) = codo_arrastrado.seleccion.take() {
@@ -844,30 +1000,64 @@ pub fn soltar_nodo(
                 cam_trf, 
                 pos_pantalla
             ) {
-                for (ent_destino, g_trf, tipo, opt_bi) in q_conectores.iter() {
-                    let pos_conector = g_trf.translation().truncate();
-                    if pos_mundo.distance(pos_conector) < config.rad_clic_con {
-                        if *tipo == TipoConector::Entrada || opt_bi.is_some() {
-                            if let Some(orig) = estado_linea.origen_entidad {
-                                if orig != ent_destino {
-                                    let duplicado = q_cables
-                                        .iter()
-                                        .any(|c| {
-                                            c.origen == orig && c.destino == ent_destino
-                                        });
-
-                                    if !duplicado {
-                                        commands.spawn(Cable {
-                                            origen: orig,
-                                            destino: ent_destino,
+                if estado_linea.es_bus {
+                    let n_bus = estado_linea.num_hilos_bus.max(2);
+                    for (g_trf, puerto_dest) in q_puertos_bus.iter() {
+                        let pos_puerto = g_trf.translation().truncate();
+                        if pos_mundo.distance(pos_puerto) < 16.0 {
+                            if let Some(orig_nodo) = estado_linea.origen_entidad {
+                                if orig_nodo != puerto_dest.nodo_padre {
+                                    let n_dest = q_nodos_todos
+                                        .get(puerto_dest.nodo_padre)
+                                        .ok()
+                                        .and_then(|(_, _, opt_b)| {
+                                            opt_b.map(|b| b.num_hilos)
+                                        })
+                                        .unwrap_or(0);
+                                    if n_dest == n_bus {
+                                        commands.spawn(CableBus {
+                                            origen_nodo: orig_nodo,
+                                            destino_nodo: puerto_dest.nodo_padre,
                                             puntos_intermedios: Vec::new(),
+                                            num_hilos: n_bus,
+                                            estados: vec![false; n_bus],
                                         });
                                     }
+                                    estado_linea.puntos_intermedios.clear();
+                                    estado_linea.es_bus = false;
+                                    next_state.set(ModoApp::Edicion);
+                                    return;
                                 }
                             }
-                            estado_linea.puntos_intermedios.clear();
-                            next_state.set(ModoApp::Edicion);
-                            return;
+                        }
+                    }
+                } else {
+                    for (ent_destino, g_trf, tipo, opt_bi) in q_conectores.iter() {
+                        let pos_conector = g_trf.translation().truncate();
+                        if pos_mundo.distance(pos_conector) < config.rad_clic_con {
+                            if *tipo == TipoConector::Entrada || opt_bi.is_some() {
+                                if let Some(orig) = estado_linea.origen_entidad {
+                                    if orig != ent_destino {
+                                        let duplicado = q_cables
+                                            .iter()
+                                            .any(|c| {
+                                                c.origen == orig 
+                                                    && c.destino == ent_destino
+                                            });
+
+                                        if !duplicado {
+                                            commands.spawn(Cable {
+                                                origen: orig,
+                                                destino: ent_destino,
+                                                puntos_intermedios: Vec::new(),
+                                            });
+                                        }
+                                    }
+                                    estado_linea.puntos_intermedios.clear();
+                                    next_state.set(ModoApp::Edicion);
+                                    return;
+                                }
+                            }
                         }
                     }
                 }
@@ -876,10 +1066,7 @@ pub fn soltar_nodo(
     }
 }
 
-// ==========================================
-// Fichero: src/raton.rs
-// Bloque: Bloque 4: Mover Nodo(s), Codos, Barras o Actualizar Rectángulo de Selección
-// ==========================================
+// --- Bloque 4: Mover Nodo(s), Codos de Cable/Bus, Barras o Actualizar Rectángulo de Selección ---
 pub fn mover_nodo_arrastrado(
     keys: Res<ButtonInput<KeyCode>>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
@@ -890,7 +1077,6 @@ pub fn mover_nodo_arrastrado(
     q_global_trf: Query<&GlobalTransform, Without<CamaraPrincipal>>,
     arrastre_barra: Res<EstadoArrastreBarra>,
     mut caja_sel: ResMut<CajaSeleccion>,
-    // Filtros Without cruzados en las 4 consultas que acceden a &mut Transform
     q_barras_y_nodos: (
         Query<
             (&mut Transform, &Arrastrando),
@@ -920,6 +1106,7 @@ pub fn mover_nodo_arrastrado(
     ),
     codo_arrastrado: Res<CodoArrastrado>,
     mut q_cables: Query<&mut Cable>,
+    mut q_cables_bus: Query<&mut CableBus>,
 ) {
     let Ok(window) = q_windows.single() else { return; };
     let Ok((cam, cam_trf)) = q_camera.single() else { return; };
@@ -1001,6 +1188,30 @@ pub fn mover_nodo_arrastrado(
         trf.translation.y = pos_mundo.y + arr.offset.y;
     }
 
+    if !codo_arrastrado.seleccion_bus.is_empty() {
+        for &(ent_cb, idx) in codo_arrastrado.seleccion_bus.iter() {
+            if let Ok(mut cb) = q_cables_bus.get_mut(ent_cb) {
+                let pto_ref = if idx > 0 {
+                    cb.puntos_intermedios.get(idx - 1).copied()
+                } else {
+                    None
+                };
+                if let Some(codo) = cb.puntos_intermedios.get_mut(idx) {
+                    if keys.pressed(KeyCode::KeyL) {
+                        if let Some(base) = pto_ref {
+                            *codo = ajustar_ortogonal_90(base, pos_mundo);
+                        } else {
+                            *codo = pos_mundo;
+                        }
+                    } else {
+                        *codo = pos_mundo;
+                    }
+                }
+            }
+        }
+        return;
+    }
+
     if let Some((ent_cable, idx)) = codo_arrastrado.seleccion {
         if let Ok(mut cable) = q_cables.get_mut(ent_cable) {
             let pto_ref = if idx > 0 {
@@ -1027,7 +1238,10 @@ pub fn mover_nodo_arrastrado(
     }
 }
 
-// --- Bloque 5: Borrar Nodo, Codo, Cable, Insertar Punto (P + Clic Der) o Abrir Menú ---
+// ==========================================
+// Fichero: src/raton.rs
+// Bloque: Bloque 5: Borrar Nodo, Codo, Cable/CableBus, Insertar Punto (P + Clic Der) o Abrir Menú
+// ==========================================
 pub fn borrar_con_clic_derecho(
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -1037,11 +1251,21 @@ pub fn borrar_con_clic_derecho(
         With<CamaraPrincipal>
     >,
     q_arrastrando: Query<Entity, With<Arrastrando>>,
-    q_nodos: Query<(Entity, &Transform, Option<&Seleccionado>), With<NodoLogico>>,
-    mut q_cables: Query<(Entity, &mut Cable)>,
-    q_global_trf: Query<&GlobalTransform>,
-    q_menu: Query<Entity, With<MenuContextual>>,
-    q_submenu: Query<Entity, With<SubMenuContextual>>,
+    q_nodos: Query<
+        (Entity, &Transform, Option<&Seleccionado>), 
+        With<NodoLogico>
+    >,
+    // Agrupamos cables, buses y menús en tuplas para no rebasar los 16 parámetros de Bevy
+    mut consultas_cables_borrar: (
+        Query<(Entity, &mut Cable)>,
+        Query<(Entity, &mut CableBus)>,
+        Query<(&GlobalTransform, &PuertoTroncoBus)>,
+        Query<&GlobalTransform>,
+    ),
+    q_menus: (
+        Query<Entity, With<MenuContextual>>,
+        Query<Entity, With<SubMenuContextual>>,
+    ),
     estado_app: Res<State<ModoApp>>,
     mut estado_linea: ResMut<EstadoCrearLinea>,
     mut next_state: ResMut<NextState<ModoApp>>,
@@ -1061,11 +1285,13 @@ pub fn borrar_con_clic_derecho(
 
     if *estado_app.get() == ModoApp::CreandoLinea {
         if estado_linea.puntos_intermedios.pop().is_none() {
+            estado_linea.es_bus = false;
             next_state.set(ModoApp::Edicion);
         }
         return;
     }
 
+    let (ref q_menu, ref q_submenu) = q_menus;
     for ent_menu in q_menu.iter() {
         commands.entity(ent_menu).despawn();
     }
@@ -1076,12 +1302,66 @@ pub fn borrar_con_clic_derecho(
     let Ok(window) = q_windows.single() else { return; };
     let Ok((cam, cam_trf)) = q_camera.single() else { return; };
 
+    let (
+        ref mut q_cables,
+        ref mut q_cables_bus,
+        ref q_puertos_bus,
+        ref q_global_trf,
+    ) = consultas_cables_borrar;
+
+    let pos_puerto_de_nodo = |nodo_id: Entity| -> Option<Vec2> {
+        for (g_trf, p) in q_puertos_bus.iter() {
+            if p.nodo_padre == nodo_id {
+                return Some(g_trf.translation().truncate());
+            }
+        }
+        None
+    };
+
     if let Some(pos_pantalla) = window.cursor_position() {
         if let Ok(pos_mundo) = cam.viewport_to_world_2d(
             cam_trf, 
             pos_pantalla
         ) {
             if keys.pressed(KeyCode::KeyP) {
+                for (_, mut cb) in q_cables_bus.iter_mut() {
+                    if let (Some(p_ori), Some(p_des)) = (
+                        pos_puerto_de_nodo(cb.origen_nodo),
+                        pos_puerto_de_nodo(cb.destino_nodo),
+                    ) {
+                        let mut puntos = Vec::new();
+                        puntos.push(p_ori);
+                        for &codo in cb.puntos_intermedios.iter() {
+                            puntos.push(codo);
+                        }
+                        puntos.push(p_des);
+
+                        for (idx_seg, ventana_pts) in 
+                            puntos.windows(2).enumerate() 
+                        {
+                            let a = ventana_pts[0];
+                            let b = ventana_pts[1];
+                            let ab = b - a;
+                            let len_sq = ab.length_squared();
+                            if len_sq > 0.001 {
+                                let ap = pos_mundo - a;
+                                let t = (ap.dot(ab) / len_sq).clamp(0.0, 1.0);
+                                let cercano = a + ab * t;
+                                if pos_mundo.distance(cercano) < 14.0 {
+                                    let paso = config.paso_snap_codo;
+                                    let nuevo_codo = Vec2::new(
+                                        (cercano.x / paso).round() * paso,
+                                        (cercano.y / paso).round() * paso,
+                                    );
+                                    cb.puntos_intermedios
+                                        .insert(idx_seg, nuevo_codo);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 for (_, mut cable) in q_cables.iter_mut() {
                     if let (Ok(trf_ori), Ok(trf_des)) = (
                         q_global_trf.get(cable.origen),
@@ -1094,7 +1374,9 @@ pub fn borrar_con_clic_derecho(
                         }
                         puntos.push(trf_des.translation().truncate());
 
-                        for (idx_seg, ventana_pts) in puntos.windows(2).enumerate() {
+                        for (idx_seg, ventana_pts) in 
+                            puntos.windows(2).enumerate() 
+                        {
                             let a = ventana_pts[0];
                             let b = ventana_pts[1];
                             let ab = b - a;
@@ -1109,7 +1391,8 @@ pub fn borrar_con_clic_derecho(
                                         (cercano.x / paso).round() * paso,
                                         (cercano.y / paso).round() * paso,
                                     );
-                                    cable.puntos_intermedios.insert(idx_seg, nuevo_codo);
+                                    cable.puntos_intermedios
+                                        .insert(idx_seg, nuevo_codo);
                                     return;
                                 }
                             }
@@ -1119,7 +1402,6 @@ pub fn borrar_con_clic_derecho(
                 return;
             }
 
-            // Si hace clic derecho sobre un nodo: si pertenecía a una selección, borra todo el bloque seleccionado
             for (ent_nodo, trf, opt_sel) in q_nodos.iter() {
                 let centro = trf.translation.truncate();
                 if pos_mundo.distance(centro) < config.rad_clic_nodo {
@@ -1134,6 +1416,24 @@ pub fn borrar_con_clic_derecho(
                     }
                     return;
                 }
+            }
+
+            let mut codo_bus_a_borrar = None;
+            for (ent_cb, cb) in q_cables_bus.iter() {
+                if let Some(idx) = cb
+                    .puntos_intermedios
+                    .iter()
+                    .position(|&c| pos_mundo.distance(c) < 12.0)
+                {
+                    codo_bus_a_borrar = Some((ent_cb, idx));
+                    break;
+                }
+            }
+            if let Some((ent_cb, idx)) = codo_bus_a_borrar {
+                if let Ok((_, mut cb)) = q_cables_bus.get_mut(ent_cb) {
+                    cb.puntos_intermedios.remove(idx);
+                }
+                return;
             }
 
             let mut codo_a_borrar = None;
@@ -1153,6 +1453,36 @@ pub fn borrar_con_clic_derecho(
                     cable.puntos_intermedios.remove(idx);
                 }
                 return;
+            }
+
+            for (ent_cb, cb) in q_cables_bus.iter() {
+                if let (Some(p_ori), Some(p_des)) = (
+                    pos_puerto_de_nodo(cb.origen_nodo),
+                    pos_puerto_de_nodo(cb.destino_nodo),
+                ) {
+                    let mut puntos = Vec::new();
+                    puntos.push(p_ori);
+                    for &codo in cb.puntos_intermedios.iter() {
+                        puntos.push(codo);
+                    }
+                    puntos.push(p_des);
+
+                    for ventana_pts in puntos.windows(2) {
+                        let a = ventana_pts[0];
+                        let b = ventana_pts[1];
+                        let ab = b - a;
+                        let len_sq = ab.length_squared();
+                        if len_sq > 0.001 {
+                            let ap = pos_mundo - a;
+                            let t = (ap.dot(ab) / len_sq).clamp(0.0, 1.0);
+                            let cercano = a + ab * t;
+                            if pos_mundo.distance(cercano) < 14.0 {
+                                commands.entity(ent_cb).despawn();
+                                return;
+                            }
+                        }
+                    }
+                }
             }
 
             for (ent_cable, cable) in q_cables.iter() {

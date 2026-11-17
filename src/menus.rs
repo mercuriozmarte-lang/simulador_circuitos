@@ -37,6 +37,7 @@ pub fn gestionar_clic_menu(
     >,
     q_nodos: Query<Entity, With<NodoLogico>>,
     q_cables: Query<Entity, With<Cable>>,
+    q_cables_bus: Query<Entity, With<CableBus>>,
     q_barras: Query<Entity, With<BarraChip>>,
     q_menu: Query<(Entity, &Transform, &MenuContextual)>,
     q_submenu: Query<(Entity, &SubMenuContextual)>,
@@ -250,6 +251,9 @@ pub fn gestionar_clic_menu(
                 }
                 for ent_c in q_cables.iter() {
                     commands.entity(ent_c).despawn();
+                }
+                for ent_cb in q_cables_bus.iter() {
+                    commands.entity(ent_cb).despawn();
                 }
             }
         }

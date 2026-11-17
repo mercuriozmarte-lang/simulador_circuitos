@@ -2,7 +2,7 @@
 // Fichero: src/lineas.rs
 // ==========================================
 
-// --- Bloque 1: Importaciones y Utilidad de Ajuste Ortogonal (90 Grados) ---
+// --- Bloque 1: Importaciones, Ajuste Ortogonal y Dibujo de Cinta Multicolor de Bus ---
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use crate::componentes::*;
@@ -18,6 +18,55 @@ pub fn ajustar_ortogonal_90(
         Vec2::new(destino.x, origen.y)
     } else {
         Vec2::new(origen.x, destino.y)
+    }
+}
+
+// Dibuja un cable de Bus de N hilos con envolvente negra y N líneas paralelas verde/rojo
+fn dibujar_cinta_bus(
+    gizmos: &mut Gizmos,
+    puntos: &[Vec2],
+    estados: &[bool],
+    num_hilos: usize,
+    config: &ConfigApp,
+) {
+    let n = num_hilos.max(2);
+    let paso_hilo = 2.0f32;
+    let semiancho = ((n - 1) as f32 * paso_hilo) / 2.0;
+    let col_borde_bus = Color::srgb(0.08, 0.10, 0.14);
+
+    for ventana in puntos.windows(2) {
+        let a = ventana[0];
+        let b = ventana[1];
+        let dir = (b - a).normalize_or_zero();
+        if dir == Vec2::ZERO {
+            continue;
+        }
+        let perp = Vec2::new(-dir.y, dir.x);
+
+        // 1. Envolvente negra exterior a ambos lados de la cinta del Bus
+        let off_ext = perp * (semiancho + 2.2);
+        gizmos.line_2d(a + off_ext, b + off_ext, col_borde_bus);
+        gizmos.line_2d(a - off_ext, b - off_ext, col_borde_bus);
+
+        // 2. Las N pistas paralelas interiores coloreadas en verde (1) o rojo (0)
+        for i in 0..n {
+            let desp = semiancho - (i as f32 * paso_hilo);
+            let off_i = perp * desp;
+            let bit_activo = estados.get(i).copied().unwrap_or(false);
+            let col_hilo = if bit_activo {
+                config.col_estado_1
+            } else {
+                config.col_estado_0
+            };
+            gizmos.line_2d(a + off_i, b + off_i, col_hilo);
+        }
+    }
+
+    // 3. Anillos circulares en los codos de unión del Bus (como en tu boceto)
+    let radio_codo = (semiancho + 3.5).max(6.5);
+    for &codo in puntos.iter().skip(1).take(puntos.len().saturating_sub(2)) {
+        gizmos.circle_2d(codo, radio_codo, col_borde_bus);
+        gizmos.circle_2d(codo, radio_codo * 0.55, Color::WHITE);
     }
 }
 
@@ -81,7 +130,7 @@ pub fn actualizar_cuadricula_infinita(
     }
 }
 
-// --- Bloque 3: Renderizado de la Línea Temporal (Mientras se traza un cable) ---
+// --- Bloque 3: Renderizado de la Línea o Bus Temporal (Mientras se traza) ---
 pub fn dibuja_linea_temporal(
     keys: Res<ButtonInput<KeyCode>>,
     estado_app: Res<State<ModoApp>>,
@@ -127,34 +176,49 @@ pub fn dibuja_linea_temporal(
             };
             puntos.push(pto_cursor);
 
-            for ventana in puntos.windows(2) {
-                gizmos.line_2d(
-                    ventana[0], 
-                    ventana[1], 
-                    config.col_cable_tmp
+            if estado_linea.es_bus {
+                let n = estado_linea.num_hilos_bus.max(2);
+                let estados_tmp = vec![false; n];
+                dibujar_cinta_bus(
+                    &mut gizmos, 
+                    &puntos, 
+                    &estados_tmp, 
+                    n, 
+                    &config
                 );
-            }
+            } else {
+                for ventana in puntos.windows(2) {
+                    gizmos.line_2d(
+                        ventana[0], 
+                        ventana[1], 
+                        config.col_cable_tmp
+                    );
+                }
 
-            for &codo in estado_linea.puntos_intermedios.iter() {
-                gizmos.circle_2d(
-                    codo, 
-                    4.5, 
-                    config.col_cable_tmp
-                );
+                for &codo in estado_linea.puntos_intermedios.iter() {
+                    gizmos.circle_2d(
+                        codo, 
+                        4.5, 
+                        config.col_cable_tmp
+                    );
+                }
             }
         }
     }
 }
 
-// --- Bloque 4: Renderizado de Cables Permanentes, Codos y Caja de Selección ---
+// --- Bloque 4: Renderizado de Cables Permanentes, Buses Multicolor y Caja de Selección ---
 pub fn dibuja_cables_permanentes(
     q_cables: Query<&Cable>,
+    q_cables_bus: Query<&CableBus>,
+    q_puertos_bus: Query<(&GlobalTransform, &PuertoTroncoBus)>,
     q_conectores: Query<(&GlobalTransform, &ValorSeñal)>,
     q_seleccionados: Query<&Transform, With<Seleccionado>>,
     caja_sel: Res<CajaSeleccion>,
     mut gizmos: Gizmos,
     config: Res<ConfigApp>,
 ) {
+    // 1. Dibujar cables normales y sus codos
     for cable in q_cables.iter() {
         let Ok((trf_ori, val_ori)) = q_conectores.get(cable.origen) else {
             continue;
@@ -191,6 +255,38 @@ pub fn dibuja_cables_permanentes(
         }
     }
 
+    // 2. Dibujar todos los Buses (CableBus) con sus N pistas verdes/rojas y anillos de unión
+    for cb in q_cables_bus.iter() {
+        let mut pos_ori = None;
+        let mut pos_des = None;
+        for (g_trf, p) in q_puertos_bus.iter() {
+            if p.nodo_padre == cb.origen_nodo {
+                pos_ori = Some(g_trf.translation().truncate());
+            }
+            if p.nodo_padre == cb.destino_nodo {
+                pos_des = Some(g_trf.translation().truncate());
+            }
+        }
+
+        if let (Some(p_a), Some(p_b)) = (pos_ori, pos_des) {
+            let mut puntos = Vec::with_capacity(cb.puntos_intermedios.len() + 2);
+            puntos.push(p_a);
+            for &codo in cb.puntos_intermedios.iter() {
+                puntos.push(codo);
+            }
+            puntos.push(p_b);
+
+            dibujar_cinta_bus(
+                &mut gizmos,
+                &puntos,
+                &cb.estados,
+                cb.num_hilos,
+                &config,
+            );
+        }
+    }
+
+    // 3. Dibujar marco celeste alrededor de los nodos seleccionados
     let col_sel = Color::srgb(0.15, 0.65, 1.0);
     for trf_sel in q_seleccionados.iter() {
         let c = trf_sel.translation.truncate();

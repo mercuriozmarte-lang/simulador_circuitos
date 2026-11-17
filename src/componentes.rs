@@ -13,17 +13,23 @@ pub enum ModoApp {
     CreandoLinea,
 }
 
-// --- Bloque 3: Recursos Globales ---
+// ==========================================
+// Fichero: src/componentes.rs
+// Bloque: Bloque 3: Recursos Globales
+// ==========================================
 #[derive(Resource, Default)]
 pub struct EstadoCrearLinea {
     pub origen_entidad: Option<Entity>,
     pub origen_pos: Vec2,
     pub puntos_intermedios: Vec<Vec2>,
+    pub es_bus: bool,
+    pub num_hilos_bus: usize,
 }
 
 #[derive(Resource, Default)]
 pub struct CodoArrastrado {
     pub seleccion: Option<(Entity, usize)>,
+    pub seleccion_bus: Vec<(Entity, usize)>,
 }
 
 #[derive(Resource, Default)]
@@ -60,7 +66,10 @@ pub struct CajaSeleccion {
     pub actual: Vec2,
 }
 
-// --- Bloque 4: Componentes de Nodos, Etiquetas, Buses y Chips ---
+// ==========================================
+// Fichero: src/componentes.rs
+// Bloque: Bloque 4: Componentes de Nodos, Etiquetas, Buses y Chips
+// ==========================================
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TipoPuerta {
     And,
@@ -145,6 +154,7 @@ pub struct DatosChip {
     pub nombre: String,
     pub nodos: Vec<NodoInternoChip>,
     pub cables: Vec<(usize, usize, usize, usize)>,
+    pub cables_bus: Vec<(usize, usize)>,
     pub pines_entrada: Vec<usize>,
     pub nombres_entrada: Vec<String>,
     pub pines_salida: Vec<usize>,
@@ -167,6 +177,14 @@ impl EstadoRedChip {
                 let n_out = sub.pines_salida.len().max(1);
                 salidas_nodos.push(vec![false; n_out]);
                 sub_redes.push(Some(Box::new(Self::nuevo_desde_datos(sub))));
+            } else if let Some(cfg_bus) = n.cod_tipo.strip_prefix("BUS:") {
+                let n_hilos = cfg_bus
+                    .split(':')
+                    .next()
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(8);
+                salidas_nodos.push(vec![false; n_hilos.max(1)]);
+                sub_redes.push(None);
             } else {
                 salidas_nodos.push(vec![false; 1]);
                 sub_redes.push(None);
@@ -287,7 +305,7 @@ pub struct CuadriculaFondo;
 
 // ==========================================
 // Fichero: src/componentes.rs
-// Bloque: Bloque 6: Componentes de Conectores y Cables
+// Bloque: Bloque 6: Componentes de Conectores, Cables y Buses
 // ==========================================
 #[derive(Component, PartialEq, Eq, Clone, Copy)]
 pub enum TipoConector {
@@ -308,6 +326,16 @@ pub struct Cable {
     pub origen: Entity,
     pub destino: Entity,
     pub puntos_intermedios: Vec<Vec2>,
+}
+
+// Cable grueso multicolor de N hilos que une dos Conectores de Bus (con soporte de uniones en T)
+#[derive(Component, Clone)]
+pub struct CableBus {
+    pub origen_nodo: Entity,
+    pub destino_nodo: Entity,
+    pub puntos_intermedios: Vec<Vec2>,
+    pub num_hilos: usize,
+    pub estados: Vec<bool>,
 }
 
 // --- Bloque 7: Componentes del Menú Contextual, Diálogos y Barras UI ---

@@ -623,6 +623,7 @@ pub fn leer_datos_chip_desde_chp(
 
     let mut nodos = Vec::new();
     let mut cables = Vec::new();
+    let mut cables_bus = Vec::new();
     let mut entradas_con_y: Vec<(usize, f32, String)> = Vec::new();
     let mut salidas_con_y: Vec<(usize, f32, String)> = Vec::new();
 
@@ -675,7 +676,6 @@ pub fn leer_datos_chip_desde_chp(
                 sub_chip,
             });
 
-            // Compatibilidad total: acepta tanto PIN_IN/PIN_OUT como ficheros antiguos en X = +/-500
             let es_pin_in = tag_barra == "PIN_IN"
                 || (tag_barra != "PIN_OUT" && (x - (-500.0)).abs() < 25.0);
             let es_pin_out = tag_barra == "PIN_OUT"
@@ -696,6 +696,10 @@ pub fn leer_datos_chip_desde_chp(
                 0
             };
             cables.push((orig, pin_out, dest, pin_in));
+        } else if partes[0] == "CABLE_BUS" && partes.len() >= 3 {
+            let orig: usize = partes[1].parse().unwrap_or(9999);
+            let dest: usize = partes[2].parse().unwrap_or(9999);
+            cables_bus.push((orig, dest));
         }
     }
 
@@ -728,6 +732,7 @@ pub fn leer_datos_chip_desde_chp(
         nombre: nombre_limpio,
         nodos,
         cables,
+        cables_bus,
         pines_entrada,
         nombres_entrada,
         pines_salida,
@@ -735,7 +740,10 @@ pub fn leer_datos_chip_desde_chp(
     })
 }
 
-// --- Bloque 8: Procesador de Guardado, Carga, Inspección y Deshacer (Ctrl + Z) ---
+// ==========================================
+// Fichero: src/archivo.rs
+// Bloque: Bloque 8: Procesador de Guardado, Carga, Inspección y Deshacer (Ctrl + Z)
+// ==========================================
 pub fn procesar_guardado_y_carga(
     keys: Res<ButtonInput<KeyCode>>,
     q_guardar: Query<(Entity, &PeticionGuardar)>,
@@ -758,6 +766,7 @@ pub fn procesar_guardado_y_carga(
         Option<&EtiquetaNodo>,
     )>,
     q_cables: Query<(Entity, &Cable)>,
+    q_cables_bus: Query<(Entity, &CableBus)>,
     q_componentes_internos: (
         Query<&BotonInterruptor>,
         Query<&ControlReloj>,
@@ -804,6 +813,7 @@ pub fn procesar_guardado_y_carga(
                     &estado_previo,
                     &q_nodos,
                     &q_cables,
+                    &q_cables_bus,
                     q_barras,
                     commands,
                     meshes,
@@ -818,6 +828,7 @@ pub fn procesar_guardado_y_carga(
     let instantanea_actual = serializar_circuito_a_texto(
         &q_nodos,
         &q_cables,
+        &q_cables_bus,
         q_botones,
         q_relojes,
         q_conectores,
@@ -842,6 +853,7 @@ pub fn procesar_guardado_y_carga(
             &peticion.ruta,
             &q_nodos,
             &q_cables,
+            &q_cables_bus,
             q_botones,
             q_relojes,
             q_conectores,
@@ -870,6 +882,7 @@ pub fn procesar_guardado_y_carga(
             &peticion.0,
             &q_nodos,
             &q_cables,
+            &q_cables_bus,
             q_barras,
             commands,
             meshes,
@@ -883,6 +896,7 @@ pub fn procesar_guardado_y_carga(
         let estado_padre = serializar_circuito_a_texto(
             &q_nodos,
             &q_cables,
+            &q_cables_bus,
             q_botones,
             q_relojes,
             q_conectores,
@@ -904,6 +918,7 @@ pub fn procesar_guardado_y_carga(
             &pet_entrar.0,
             &q_nodos,
             &q_cables,
+            &q_cables_bus,
             q_barras,
             commands,
             meshes,
@@ -925,6 +940,7 @@ pub fn procesar_guardado_y_carga(
                 &estado_padre,
                 &q_nodos,
                 &q_cables,
+                &q_cables_bus,
                 q_barras,
                 commands,
                 meshes,
@@ -936,7 +952,10 @@ pub fn procesar_guardado_y_carga(
     }
 }
 
-// --- Bloque 9: Lógica de Serialización a Texto ---
+// ==========================================
+// Fichero: src/archivo.rs
+// Bloque: Bloque 9: Lógica de Serialización a Texto
+// ==========================================
 pub fn serializar_circuito_a_texto(
     q_nodos: &Query<(
         Entity, 
@@ -949,6 +968,7 @@ pub fn serializar_circuito_a_texto(
         Option<&EtiquetaNodo>,
     )>,
     q_cables: &Query<(Entity, &Cable)>,
+    q_cables_bus: &Query<(Entity, &CableBus)>,
     q_botones: &Query<&BotonInterruptor>,
     q_relojes: &Query<&ControlReloj>,
     q_conectores: &Query<&TipoConector>,
@@ -1103,6 +1123,35 @@ pub fn serializar_circuito_a_texto(
         }
     }
 
+    let mut cables_bus_ordenados: Vec<_> = q_cables_bus.iter().collect();
+    cables_bus_ordenados.sort_by_key(|(ent, _)| *ent);
+
+    for (_, cb) in cables_bus_ordenados {
+        let idx_orig = lista_nodos
+            .iter()
+            .position(|(e, _, _)| *e == cb.origen_nodo);
+        let idx_dest = lista_nodos
+            .iter()
+            .position(|(e, _, _)| *e == cb.destino_nodo);
+
+        if let (Some(o), Some(d)) = (idx_orig, idx_dest) {
+            let codos_str: Vec<String> = cb
+                .puntos_intermedios
+                .iter()
+                .map(|p| format!("{},{}", p.x, p.y))
+                .collect();
+
+            let linea_cb = format!(
+                "CABLE_BUS|{}|{}|{}|{}",
+                o,
+                d,
+                codos_str.join(";"),
+                cb.num_hilos
+            );
+            lineas_cables.push(linea_cb);
+        }
+    }
+
     lineas_nodos.extend(lineas_cables);
     lineas_nodos.join("\n")
 }
@@ -1120,6 +1169,7 @@ fn guardar_en_disco(
         Option<&EtiquetaNodo>,
     )>,
     q_cables: &Query<(Entity, &Cable)>,
+    q_cables_bus: &Query<(Entity, &CableBus)>,
     q_botones: &Query<&BotonInterruptor>,
     q_relojes: &Query<&ControlReloj>,
     q_conectores: &Query<&TipoConector>,
@@ -1130,6 +1180,7 @@ fn guardar_en_disco(
     let contenido = serializar_circuito_a_texto(
         q_nodos,
         q_cables,
+        q_cables_bus,
         q_botones,
         q_relojes,
         q_conectores,
@@ -1144,7 +1195,10 @@ fn guardar_en_disco(
     }
 }
 
-// --- Bloque 10: Lógica de Lectura y Reconstrucción en Lienzo ---
+// ==========================================
+// Fichero: src/archivo.rs
+// Bloque: Bloque 10: Lógica de Lectura y Reconstrucción en Lienzo
+// ==========================================
 pub fn reconstruir_circuito_desde_texto(
     contenido: &str,
     q_nodos: &Query<(
@@ -1158,6 +1212,7 @@ pub fn reconstruir_circuito_desde_texto(
         Option<&EtiquetaNodo>,
     )>,
     q_cables: &Query<(Entity, &Cable)>,
+    q_cables_bus: &Query<(Entity, &CableBus)>,
     q_barras: &Query<Entity, With<BarraChip>>,
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
@@ -1170,6 +1225,9 @@ pub fn reconstruir_circuito_desde_texto(
     for (ent_cable, _) in q_cables.iter() {
         commands.entity(ent_cable).despawn();
     }
+    for (ent_cb, _) in q_cables_bus.iter() {
+        commands.entity(ent_cb).despawn();
+    }
     for ent_b in q_barras.iter() {
         commands.entity(ent_b).despawn();
     }
@@ -1178,6 +1236,7 @@ pub fn reconstruir_circuito_desde_texto(
     let mut x_barra_izq: Option<f32> = None;
     let mut x_barra_der: Option<f32> = None;
     let mut max_abs_y: f32 = 400.0;
+    let mut entidades_nodos: Vec<Entity> = Vec::new();
     let mut conectores_creados: Vec<(Vec<Entity>, Vec<Entity>)> = Vec::new();
 
     for linea in contenido.lines() {
@@ -1215,7 +1274,7 @@ pub fn reconstruir_circuito_desde_texto(
 
             let pos = Vec2::new(x, y);
 
-            let (salidas_vec, entradas_vec) = if let Some(nom_chip) = 
+            let (ent_creada, salidas_vec, entradas_vec) = if let Some(nom_chip) = 
                 cod.strip_prefix("CHIP:") 
             {
                 let arch_sub_min = format!(
@@ -1231,23 +1290,31 @@ pub fn reconstruir_circuito_desde_texto(
                 if let Some(datos_sub) = leer_datos_chip_desde_chp(&arch_sub_min)
                     .or_else(|| leer_datos_chip_desde_chp(&arch_sub_orig)) 
                 {
-                    let (_, s_vec, e_vec) = crear_chip_personalizado(
+                    crear_chip_personalizado(
                         commands, 
                         pos, 
                         datos_sub, 
                         config
-                    );
-                    (s_vec, e_vec)
+                    )
                 } else {
-                    (Vec::new(), Vec::new())
+                    (Entity::PLACEHOLDER, Vec::new(), Vec::new())
                 }
             } else if let Some(cfg_bus) = cod.strip_prefix("BUS:") {
                 let p_b: Vec<&str> = cfg_bus.split(':').collect();
-                let num_hilos: usize = p_b.first().and_then(|s| s.parse().ok()).unwrap_or(8);
-                let rotacion: u8 = p_b.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
-                let modo_u8: u8 = p_b.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
+                let num_hilos: usize = p_b
+                    .first()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(8);
+                let rotacion: u8 = p_b
+                    .get(1)
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
+                let modo_u8: u8 = p_b
+                    .get(2)
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
 
-                let (_, s_vec, e_vec) = crear_conector_bus(
+                crear_conector_bus(
                     commands,
                     pos,
                     DatosConectorBus {
@@ -1256,8 +1323,27 @@ pub fn reconstruir_circuito_desde_texto(
                         modo: ModoDireccionBus::desde_u8(modo_u8),
                     },
                     config,
+                )
+            } else if cod == "INT" {
+                let (ent_i, s_i, e_i) = crear_interruptor(
+                    commands, meshes, materials, pos, est, etq_nodo, config
                 );
-                (s_vec, e_vec)
+                if tag_barra == "PIN_IN" {
+                    commands
+                        .entity(ent_i)
+                        .insert(PegadoABarra(BarraChip::IzquierdaEntradas));
+                }
+                (ent_i, s_i.into_iter().collect(), e_i)
+            } else if cod == "LED" {
+                let (ent_l, s_l, e_l) = crear_led(
+                    commands, meshes, materials, pos, etq_nodo, config
+                );
+                if tag_barra == "PIN_OUT" {
+                    commands
+                        .entity(ent_l)
+                        .insert(PegadoABarra(BarraChip::DerechaSalidas));
+                }
+                (ent_l, s_l.into_iter().collect(), e_l)
             } else {
                 let info_simple = match cod {
                     "AND" => crear_puerta(
@@ -1284,28 +1370,6 @@ pub fn reconstruir_circuito_desde_texto(
                     "TRI" => crear_puerta(
                         commands, meshes, materials, pos, TipoPuerta::TriState, config
                     ),
-                    "INT" => {
-                        let (ent_i, s_i, e_i) = crear_interruptor(
-                            commands, meshes, materials, pos, est, etq_nodo, config
-                        );
-                        if tag_barra == "PIN_IN" {
-                            commands
-                                .entity(ent_i)
-                                .insert(PegadoABarra(BarraChip::IzquierdaEntradas));
-                        }
-                        (s_i, e_i)
-                    }
-                    "LED" => {
-                        let (ent_l, s_l, e_l) = crear_led(
-                            commands, meshes, materials, pos, etq_nodo, config
-                        );
-                        if tag_barra == "PIN_OUT" {
-                            commands
-                                .entity(ent_l)
-                                .insert(PegadoABarra(BarraChip::DerechaSalidas));
-                        }
-                        (s_l, e_l)
-                    }
                     "CLK" => crear_reloj(
                         commands, meshes, materials, pos, frec, config
                     ),
@@ -1314,9 +1378,10 @@ pub fn reconstruir_circuito_desde_texto(
                     _ => (None, Vec::new()),
                 };
                 let v_sal = info_simple.0.into_iter().collect();
-                (v_sal, info_simple.1)
+                (Entity::PLACEHOLDER, v_sal, info_simple.1)
             };
 
+            entidades_nodos.push(ent_creada);
             conectores_creados.push((salidas_vec, entradas_vec));
         } else if partes[0] == "CABLE" && partes.len() >= 4 {
             let orig_idx: usize = partes[1].parse().unwrap_or(9999);
@@ -1357,6 +1422,37 @@ pub fn reconstruir_circuito_desde_texto(
                     });
                 }
             }
+        } else if partes[0] == "CABLE_BUS" && partes.len() >= 5 {
+            let orig_idx: usize = partes[1].parse().unwrap_or(9999);
+            let dest_idx: usize = partes[2].parse().unwrap_or(9999);
+            let num_hilos: usize = partes[4].parse().unwrap_or(8);
+
+            let mut puntos_intermedios = Vec::new();
+            if !partes[3].is_empty() {
+                for par in partes[3].split(';') {
+                    let coords: Vec<&str> = par.split(',').collect();
+                    if coords.len() == 2 {
+                        let cx: f32 = coords[0].parse().unwrap_or(0.0);
+                        let cy: f32 = coords[1].parse().unwrap_or(0.0);
+                        puntos_intermedios.push(Vec2::new(cx, cy));
+                    }
+                }
+            }
+
+            if let (Some(&ent_o), Some(&ent_d)) = (
+                entidades_nodos.get(orig_idx),
+                entidades_nodos.get(dest_idx),
+            ) {
+                if ent_o != Entity::PLACEHOLDER && ent_d != Entity::PLACEHOLDER {
+                    commands.spawn(CableBus {
+                        origen_nodo: ent_o,
+                        destino_nodo: ent_d,
+                        puntos_intermedios,
+                        num_hilos,
+                        estados: vec![false; num_hilos.max(2)],
+                    });
+                }
+            }
         }
     }
 
@@ -1387,6 +1483,7 @@ fn cargar_desde_disco(
         Option<&EtiquetaNodo>,
     )>,
     q_cables: &Query<(Entity, &Cable)>,
+    q_cables_bus: &Query<(Entity, &CableBus)>,
     q_barras: &Query<Entity, With<BarraChip>>,
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
@@ -1402,6 +1499,7 @@ fn cargar_desde_disco(
         &contenido,
         q_nodos,
         q_cables,
+        q_cables_bus,
         q_barras,
         commands,
         meshes,
