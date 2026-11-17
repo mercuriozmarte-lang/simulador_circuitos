@@ -103,6 +103,7 @@ fn main() {
         .init_resource::<EstadoCrearLinea>()
         .init_resource::<CodoArrastrado>()
         .init_resource::<EstadoArrastreBarra>()
+        .init_resource::<CajaSeleccion>()
         .init_resource::<PilaInspeccion>()
         .init_resource::<HistorialUndo>()
         .init_resource::<DesplazamientoBarraChips>()

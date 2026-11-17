@@ -833,7 +833,10 @@ pub fn procesar_guardado_y_carga(
     }
 }
 
-// --- Bloque 9: Lógica de Serialización a Texto ---
+// ==========================================
+// Fichero: src/archivo.rs
+// Bloque: Bloque 9: Lógica de Serialización a Texto
+// ==========================================
 pub fn serializar_circuito_a_texto(
     q_nodos: &Query<(
         Entity, 
@@ -900,6 +903,7 @@ pub fn serializar_circuito_a_texto(
             TipoPuerta::Nor => "NOR".to_string(),
             TipoPuerta::Xor => "XOR".to_string(),
             TipoPuerta::Xnor => "XNOR".to_string(),
+            TipoPuerta::TriState => "TRI".to_string(),
             TipoPuerta::Interruptor => "INT".to_string(),
             TipoPuerta::Led => "LED".to_string(),
             TipoPuerta::Reloj => "CLK".to_string(),
@@ -1025,7 +1029,6 @@ fn guardar_en_disco(
     }
 }
 
-
 // ==========================================
 // Fichero: src/archivo.rs
 // Bloque: Bloque 10: Lógica de Lectura y Reconstrucción en Lienzo
@@ -1147,6 +1150,9 @@ pub fn reconstruir_circuito_desde_texto(
                     ),
                     "XNOR" => crear_puerta(
                         commands, meshes, materials, pos, TipoPuerta::Xnor, config
+                    ),
+                    "TRI" => crear_puerta(
+                        commands, meshes, materials, pos, TipoPuerta::TriState, config
                     ),
                     "INT" => {
                         let (ent_i, s_i, e_i) = crear_interruptor(
@@ -1274,7 +1280,6 @@ fn cargar_desde_disco(
 
     println!("Circuito cargado correctamente desde {}", ruta_archivo);
 }
-
 // ==========================================
 // Fichero: src/archivo.rs
 // Bloque: Bloque 11: Lector de Estructura Interna de Chip desde chips/

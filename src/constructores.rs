@@ -227,7 +227,7 @@ fn crear_malla_arco_xor(
 
 // ==========================================
 // Fichero: src/constructores.rs
-// Bloque: Bloque 4: Creador de Puertas Lógicas Vectoriales
+// Bloque: Bloque 4: Creador de Puertas Lógicas y Buffer Tri-State
 // ==========================================
 pub fn crear_puerta(
     commands: &mut Commands,
@@ -245,6 +245,7 @@ pub fn crear_puerta(
         TipoPuerta::Nor => "NOR",
         TipoPuerta::Xor => "XOR",
         TipoPuerta::Xnor => "XNOR",
+        TipoPuerta::TriState => "TRI",
         _ => "GATE",
     };
 
@@ -276,6 +277,126 @@ pub fn crear_puerta(
         NodoLogico { tipo: tipo_puerta },
     ))
     .with_children(|padre| {
+        if tipo_puerta == TipoPuerta::TriState {
+            // Patilla superior (Pin 0 = Enable): entra hacia la parte superior del triángulo
+            padre.spawn((
+                Sprite {
+                    color: col_borde,
+                    custom_size: Some(Vec2::new(36.0, 3.5)),
+                    ..default()
+                },
+                Transform::from_xyz(-30.0, 12.5, 0.02),
+            ));
+            // Bajada vertical de la línea de control Enable hacia el lomo del triángulo
+            padre.spawn((
+                Sprite {
+                    color: col_borde,
+                    custom_size: Some(Vec2::new(3.5, 10.0)),
+                    ..default()
+                },
+                Transform::from_xyz(-12.0, 9.0, 0.02),
+            ));
+
+            // Patilla inferior (Pin 1 = Data): entra a la base izquierda del triángulo
+            padre.spawn((
+                Sprite {
+                    color: col_borde,
+                    custom_size: Some(Vec2::new(26.0, 3.5)),
+                    ..default()
+                },
+                Transform::from_xyz(-35.0, -12.5, 0.02),
+            ));
+
+            // Patilla de salida derecha
+            padre.spawn((
+                Sprite {
+                    color: col_borde,
+                    custom_size: Some(Vec2::new(26.0, 3.5)),
+                    ..default()
+                },
+                Transform::from_xyz(35.0, 0.0, 0.02),
+            ));
+
+            // Cuerpo triangular vectorial (mismo estilo que las demás puertas)
+            let pts_ext = [
+                Vec2::new(-24.0, 24.0),
+                Vec2::new(-24.0, -24.0),
+                Vec2::new(24.0, 0.0),
+            ];
+            let pts_int = [
+                Vec2::new(-20.5, 18.5),
+                Vec2::new(-20.5, -18.5),
+                Vec2::new(17.0, 0.0),
+            ];
+
+            padre.spawn((
+                Mesh2d(meshes.add(crear_malla_poligono(
+                    Vec2::new(-6.0, 0.0),
+                    &pts_ext,
+                ))),
+                MeshMaterial2d(mat_borde.clone()),
+                Transform::from_xyz(0.0, 0.0, 0.05),
+            ));
+            padre.spawn((
+                Mesh2d(meshes.add(crear_malla_poligono(
+                    Vec2::new(-6.0, 0.0),
+                    &pts_int,
+                ))),
+                MeshMaterial2d(mat_relleno.clone()),
+                Transform::from_xyz(0.0, 0.0, 0.10),
+            ));
+
+            padre.spawn((
+                Text2d::new("TRI"),
+                TextFont {
+                    font_size: bevy::text::FontSize::Px(11.0),
+                    ..default()
+                },
+                TextColor(col_borde),
+                Transform::from_xyz(-8.0, -2.0, 0.20),
+            ));
+
+            let e_en = padre.spawn((
+                bundle_conector(
+                    Vec3::new(x_con_in, 12.5, 0.25),
+                    TipoConector::Entrada,
+                    config,
+                ),
+                PinEntrada(0),
+            ))
+            .with_children(|con| {
+                poblar_interior_conector(con, TipoConector::Entrada, config);
+            })
+            .id();
+            entradas.push(e_en);
+
+            let e_dt = padre.spawn((
+                bundle_conector(
+                    Vec3::new(x_con_in, -12.5, 0.25),
+                    TipoConector::Entrada,
+                    config,
+                ),
+                PinEntrada(1),
+            ))
+            .with_children(|con| {
+                poblar_interior_conector(con, TipoConector::Entrada, config);
+            })
+            .id();
+            entradas.push(e_dt);
+
+            let e_out = padre.spawn(bundle_conector(
+                Vec3::new(x_con_out, 0.0, 0.25),
+                TipoConector::Salida,
+                config,
+            ))
+            .with_children(|con| {
+                poblar_interior_conector(con, TipoConector::Salida, config);
+            })
+            .id();
+            ent_salida = Some(e_out);
+            return;
+        }
+
         if tipo_puerta == TipoPuerta::Not {
             padre.spawn((
                 Sprite {
@@ -763,7 +884,7 @@ pub fn crear_reloj(
 
 // ==========================================
 // Fichero: src/constructores.rs
-// Bloque: Bloque 8: Creador de Displays de 7 Segmentos (con Pin S de Signo Negativo)
+// Bloque: Bloque 8: Creador de Displays Apilables en Vertical (Margen = 0.5 * Paso)
 // ==========================================
 pub fn crear_display(
     commands: &mut Commands,
@@ -777,10 +898,17 @@ pub fn crear_display(
         TipoPuerta::Display7Seg
     };
 
-    let sep = config.sep_pines_chip;
-    let alto_caja = if es_4_bits { 116.0 } else { 8.0 * sep + 24.0 };
+    let sep = config.sep_pines_chip; // 25.0px
+    let num_pines = if es_4_bits { 4 } else { 8 };
+    // Altura total = N * 25.0px (100.0px para 4 bits, 200.0px para 7 segmentos)
+    let alto_caja = (num_pines as f32) * sep;
     let ancho_caja = if es_4_bits { 74.0 } else { 104.0 };
     let mut entradas = Vec::new();
+
+    // Primer pin a (alto_caja / 2.0) - (0.5 * sep):
+    // - En 4 bits (alto 100, borde sup +50.0): pines en +37.5, +12.5, -12.5, -37.5 (margen sup e inf = 12.5px)
+    // - En 7 seg (alto 200, borde sup +100.0): pines en +87.5 .. -87.5 (margen sup e inf = 12.5px)
+    let inicio_y = (alto_caja / 2.0) - (sep * 0.5);
 
     commands.spawn((
         Sprite {
@@ -793,8 +921,8 @@ pub fn crear_display(
     ))
     .with_children(|padre| {
         if es_4_bits {
-            let ys = [37.5, 12.5, -12.5, -37.5];
-            for (i, &y) in ys.iter().enumerate() {
+            for i in 0..4 {
+                let y = inicio_y - (i as f32 * sep);
                 let e_in = padre.spawn((
                     bundle_conector(
                         Vec3::new(-ancho_caja / 2.0, y, 0.1),
@@ -810,9 +938,7 @@ pub fn crear_display(
                 entradas.push(e_in);
             }
         } else {
-            // 8 entradas separadas a 25px: Pin 0 = S (Signo '-'), Pines 1..7 = A..G
             let nombres_pines = ["S", "A", "B", "C", "D", "E", "F", "G"];
-            let inicio_y = 3.0 * sep;
             for (i, nom_pin) in nombres_pines.iter().enumerate() {
                 let y = inicio_y - (i as f32 * sep);
                 let e_in = padre.spawn((
@@ -844,14 +970,13 @@ pub fn crear_display(
         let col_apagado = Color::srgb(0.18, 0.18, 0.20);
         let x_off = if es_4_bits { 5.0 } else { 18.0 };
 
-        // Segmentos 0..6 (A..G) del dígito numérico
         let defs_seg: [(usize, Vec2, Vec2); 7] = [
-            (0, Vec2::new(x_off, 38.0),        Vec2::new(28.0, 6.0)),
-            (1, Vec2::new(x_off + 16.0, 19.0), Vec2::new(6.0, 30.0)),
-            (2, Vec2::new(x_off + 16.0, -19.0),Vec2::new(6.0, 30.0)),
-            (3, Vec2::new(x_off, -38.0),       Vec2::new(28.0, 6.0)),
-            (4, Vec2::new(x_off - 16.0, -19.0),Vec2::new(6.0, 30.0)),
-            (5, Vec2::new(x_off - 16.0, 19.0), Vec2::new(6.0, 30.0)),
+            (0, Vec2::new(x_off, 34.0),        Vec2::new(28.0, 6.0)),
+            (1, Vec2::new(x_off + 16.0, 17.0), Vec2::new(6.0, 26.0)),
+            (2, Vec2::new(x_off + 16.0, -17.0),Vec2::new(6.0, 26.0)),
+            (3, Vec2::new(x_off, -34.0),       Vec2::new(28.0, 6.0)),
+            (4, Vec2::new(x_off - 16.0, -17.0),Vec2::new(6.0, 26.0)),
+            (5, Vec2::new(x_off - 16.0, 17.0), Vec2::new(6.0, 26.0)),
             (6, Vec2::new(x_off, 0.0),         Vec2::new(28.0, 6.0)),
         ];
 
@@ -867,7 +992,6 @@ pub fn crear_display(
             ));
         }
 
-        // Segmento 7: Signo negativo '-' a la izquierda del número (exclusivo en Display7Seg)
         if !es_4_bits {
             padre.spawn((
                 Sprite {

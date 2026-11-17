@@ -136,7 +136,8 @@ pub fn gestionar_clic_menu(
                     | TipoPuerta::Nand 
                     | TipoPuerta::Nor 
                     | TipoPuerta::Xor 
-                    | TipoPuerta::Xnor => {
+                    | TipoPuerta::Xnor
+                    | TipoPuerta::TriState => {
                         crear_puerta(
                             &mut commands,
                             &mut meshes,
@@ -231,151 +232,163 @@ pub fn gestionar_clic_menu(
     }
 }
 
-// --- Bloque 3: Constructores del Menú Contextual y Submenús ---
+// ==========================================
+// Fichero: src/menus.rs
+// Bloque: Bloque 3: Constructores del Menú Contextual y Submenús
+// ==========================================
 pub fn abrir_menu_contextual(
     commands: &mut Commands, 
-    pos: Vec2
+    pos_mundo: Vec2
 ) {
-    let categorias = [
-        ("Puertas  >>", AccionMenu::AbrirCategoria(CategoriaMenu::Puertas)),
-        ("Entradas >>", AccionMenu::AbrirCategoria(CategoriaMenu::Entradas)),
-        ("Salidas  >>", AccionMenu::AbrirCategoria(CategoriaMenu::Salidas)),
-        ("Chip     >>", AccionMenu::AbrirCategoria(CategoriaMenu::Chip)),
-        ("Archivo  >>", AccionMenu::AbrirCategoria(CategoriaMenu::Archivo)),
+    let items_principales: [(&str, AccionMenu); 6] = [
+        ("Puertas     >>", AccionMenu::AbrirCategoria(CategoriaMenu::Puertas)),
+        ("Entradas    >>", AccionMenu::AbrirCategoria(CategoriaMenu::Entradas)),
+        ("Salidas     >>", AccionMenu::AbrirCategoria(CategoriaMenu::Salidas)),
+        ("Chip        >>", AccionMenu::AbrirCategoria(CategoriaMenu::Chip)),
+        ("Archivo     >>", AccionMenu::AbrirCategoria(CategoriaMenu::Archivo)),
+        ("Limpiar Todo",   AccionMenu::LimpiarTodo),
     ];
 
-    let ancho_btn = 130.0;
-    let alto_btn = 32.0;
+    let ancho_boton = 130.0;
+    let alto_boton = 32.0;
     let separacion = 36.0;
-    let total_alto = (categorias.len() as f32) * separacion + 10.0;
+    let num_items = items_principales.len() as f32;
+    let total_alto = num_items * separacion + 12.0;
 
     commands.spawn((
         Sprite {
-            color: Color::srgb(0.12, 0.12, 0.15),
-            custom_size: Some(Vec2::new(ancho_btn + 12.0, total_alto)),
+            color: Color::srgb(0.14, 0.16, 0.22),
+            custom_size: Some(Vec2::new(ancho_boton + 16.0, total_alto)),
             ..default()
         },
-        Transform::from_xyz(pos.x, pos.y, 5.0),
-        MenuContextual { pos_creacion: pos },
+        Transform::from_xyz(pos_mundo.x, pos_mundo.y, 10.0),
+        MenuContextual {
+            pos_creacion: pos_mundo,
+        },
     ))
     .with_children(|padre| {
-        let inicio_y = 
-            ((categorias.len() as f32 - 1.0) * separacion) / 2.0;
+        let inicio_y = ((num_items - 1.0) * separacion) / 2.0;
 
-        for (i, (texto, accion)) in categorias.iter().enumerate() {
-            let y = inicio_y - (i as f32 * separacion);
-            let centro_mundo = Vec2::new(pos.x, pos.y + y);
+        for (i, (etiqueta, accion)) in items_principales.iter().enumerate() {
+            let offset_y = inicio_y - (i as f32 * separacion);
+            let centro_btn = Vec2::new(
+                pos_mundo.x, 
+                pos_mundo.y + offset_y
+            );
 
             padre.spawn((
                 Sprite {
                     color: Color::srgb(0.24, 0.28, 0.36),
-                    custom_size: Some(Vec2::new(ancho_btn, alto_btn)),
+                    custom_size: Some(Vec2::new(ancho_boton, alto_boton)),
                     ..default()
                 },
-                Transform::from_xyz(0.0, y, 0.1),
-                BotonMenu { 
+                Transform::from_xyz(0.0, offset_y, 0.1),
+                BotonMenu {
                     accion: *accion,
-                    centro_mundo,
+                    centro_mundo: centro_btn,
                 },
             ))
-            .with_children(|btn| {
-                btn.spawn((
-                    Text2d::new(*texto),
+            .with_children(|boton| {
+                boton.spawn((
+                    Text2d::new(*etiqueta),
                     TextFont {
-                        font_size: bevy::text::FontSize::Px(15.0),
+                        font_size: bevy::text::FontSize::Px(14.0),
                         ..default()
                     },
                     TextColor(Color::WHITE),
-                    Transform::from_xyz(0.0, 0.0, 0.1),
+                    Transform::from_xyz(0.0, 0.0, 0.2),
                 ));
             });
         }
     });
 }
 
-pub fn abrir_submenu(
+fn abrir_submenu(
     commands: &mut Commands,
     pos_menu_principal: Vec2,
     categoria: CategoriaMenu,
 ) {
     let opciones: Vec<(&str, AccionMenu)> = match categoria {
         CategoriaMenu::Puertas => vec![
-            ("Puerta AND", AccionMenu::CrearNodo(TipoPuerta::And)),
-            ("Puerta OR", AccionMenu::CrearNodo(TipoPuerta::Or)),
-            ("Puerta NOT", AccionMenu::CrearNodo(TipoPuerta::Not)),
-            ("Puerta NAND", AccionMenu::CrearNodo(TipoPuerta::Nand)),
-            ("Puerta NOR", AccionMenu::CrearNodo(TipoPuerta::Nor)),
-            ("Puerta XOR", AccionMenu::CrearNodo(TipoPuerta::Xor)),
-            ("Puerta XNOR", AccionMenu::CrearNodo(TipoPuerta::Xnor)),
+            ("Puerta AND",      AccionMenu::CrearNodo(TipoPuerta::And)),
+            ("Puerta OR",       AccionMenu::CrearNodo(TipoPuerta::Or)),
+            ("Puerta NOT",      AccionMenu::CrearNodo(TipoPuerta::Not)),
+            ("Puerta NAND",     AccionMenu::CrearNodo(TipoPuerta::Nand)),
+            ("Puerta NOR",      AccionMenu::CrearNodo(TipoPuerta::Nor)),
+            ("Puerta XOR",      AccionMenu::CrearNodo(TipoPuerta::Xor)),
+            ("Puerta XNOR",     AccionMenu::CrearNodo(TipoPuerta::Xnor)),
+            ("Buffer TriState", AccionMenu::CrearNodo(TipoPuerta::TriState)),
         ],
         CategoriaMenu::Entradas => vec![
-            ("Interruptor", AccionMenu::CrearNodo(TipoPuerta::Interruptor)),
-            ("Reloj (Clock)", AccionMenu::CrearNodo(TipoPuerta::Reloj)),
+            ("Interruptor",  AccionMenu::CrearNodo(TipoPuerta::Interruptor)),
+            ("Reloj (CLK)",  AccionMenu::CrearNodo(TipoPuerta::Reloj)),
         ],
         CategoriaMenu::Salidas => vec![
-            ("LED Salida", AccionMenu::CrearNodo(TipoPuerta::Led)),
-            ("Display 4-Bits", AccionMenu::CrearNodo(TipoPuerta::Display4Bits)),
+            ("LED Simple",    AccionMenu::CrearNodo(TipoPuerta::Led)),
+            ("Display 4-Bit", AccionMenu::CrearNodo(TipoPuerta::Display4Bits)),
             ("Display 7-Seg", AccionMenu::CrearNodo(TipoPuerta::Display7Seg)),
         ],
         CategoriaMenu::Chip => vec![
-            ("Barras I/O", AccionMenu::AlternarBarrasChip),
+            ("Barras I/O",   AccionMenu::AlternarBarrasChip),
             ("Guardar .chp", AccionMenu::GuardarChip),
         ],
         CategoriaMenu::Archivo => vec![
             ("Guardar .cir", AccionMenu::GuardarCircuito),
-            ("Cargar .cir", AccionMenu::CargarCircuito),
-            ("Limpiar Todo", AccionMenu::LimpiarTodo),
+            ("Cargar .cir",  AccionMenu::CargarCircuito),
         ],
     };
 
-    let ancho_btn = 130.0;
-    let alto_btn = 32.0;
+    let ancho_boton = 130.0;
+    let alto_boton = 32.0;
     let separacion = 36.0;
-    let total_alto = (opciones.len() as f32) * separacion + 10.0;
+    let num_items = opciones.len() as f32;
+    let total_alto = num_items * separacion + 12.0;
 
     let pos_sub = Vec2::new(
-        pos_menu_principal.x + ancho_btn + 14.0,
+        pos_menu_principal.x + 150.0,
         pos_menu_principal.y,
     );
 
     commands.spawn((
         Sprite {
-            color: Color::srgb(0.15, 0.16, 0.20),
-            custom_size: Some(Vec2::new(ancho_btn + 12.0, total_alto)),
+            color: Color::srgb(0.14, 0.16, 0.22),
+            custom_size: Some(Vec2::new(ancho_boton + 16.0, total_alto)),
             ..default()
         },
-        Transform::from_xyz(pos_sub.x, pos_sub.y, 5.5),
+        Transform::from_xyz(pos_sub.x, pos_sub.y, 11.0),
         SubMenuContextual { categoria },
     ))
     .with_children(|padre| {
-        let inicio_y = 
-            ((opciones.len() as f32 - 1.0) * separacion) / 2.0;
+        let inicio_y = ((num_items - 1.0) * separacion) / 2.0;
 
-        for (i, (texto, accion)) in opciones.iter().enumerate() {
-            let y = inicio_y - (i as f32 * separacion);
-            let centro_mundo = Vec2::new(pos_sub.x, pos_sub.y + y);
+        for (i, (etiqueta, accion)) in opciones.iter().enumerate() {
+            let offset_y = inicio_y - (i as f32 * separacion);
+            let centro_btn = Vec2::new(
+                pos_sub.x, 
+                pos_sub.y + offset_y
+            );
 
             padre.spawn((
                 Sprite {
                     color: Color::srgb(0.24, 0.28, 0.36),
-                    custom_size: Some(Vec2::new(ancho_btn, alto_btn)),
+                    custom_size: Some(Vec2::new(ancho_boton, alto_boton)),
                     ..default()
                 },
-                Transform::from_xyz(0.0, y, 0.1),
-                BotonMenu { 
+                Transform::from_xyz(0.0, offset_y, 0.1),
+                BotonMenu {
                     accion: *accion,
-                    centro_mundo,
+                    centro_mundo: centro_btn,
                 },
             ))
-            .with_children(|btn| {
-                btn.spawn((
-                    Text2d::new(*texto),
+            .with_children(|boton| {
+                boton.spawn((
+                    Text2d::new(*etiqueta),
                     TextFont {
-                        font_size: bevy::text::FontSize::Px(15.0),
+                        font_size: bevy::text::FontSize::Px(14.0),
                         ..default()
                     },
                     TextColor(Color::WHITE),
-                    Transform::from_xyz(0.0, 0.0, 0.1),
+                    Transform::from_xyz(0.0, 0.0, 0.2),
                 ));
             });
         }
@@ -637,7 +650,6 @@ pub fn gestionar_clic_barras_ui(
     q_camera: Query<&Transform, With<CamaraPrincipal>>,
     q_barra_inf: Query<Entity, With<BarraInferiorChips>>,
     mut scroll_barra: ResMut<DesplazamientoBarraChips>,
-    // Añadimos filtros Without cruzados para evitar el conflicto ECS B0001 en BackgroundColor
     q_botones_ui: (
         Query<
             (&BotonChipInferior, &mut BackgroundColor),
@@ -670,7 +682,6 @@ pub fn gestionar_clic_barras_ui(
         mut q_boton_volver
     ) = q_botones_ui;
 
-    // 1. Clic en el botón superior [< VOLVER ATRAS]
     for mut color_volver in q_boton_volver.iter_mut() {
         let en_y_sup = pos_cursor.y >= 10.0 && pos_cursor.y <= 54.0;
         let en_x_sup = pos_cursor.x >= 30.0 && pos_cursor.x <= 190.0;
@@ -692,7 +703,6 @@ pub fn gestionar_clic_barras_ui(
     let dentro_franja_y = pos_cursor.y >= (alto_ventana - 52.0) 
         && pos_cursor.y <= (alto_ventana - 10.0);
 
-    // 2. Clic en los botones [<] y [>] para deslizar la barra inferior
     let mut cambio_scroll = None;
     for (btn_sc, mut color_sc) in q_botones_scroll.iter_mut() {
         let dentro_x = pos_cursor.x >= btn_sc.x_min 
@@ -723,7 +733,6 @@ pub fn gestionar_clic_barras_ui(
         return;
     }
 
-    // 3. Clic en los botones de Chips de la barra inferior
     let centro_cam = q_camera
         .single()
         .map(|t| t.translation.truncate())
@@ -779,7 +788,9 @@ pub fn gestionar_clic_barras_ui(
                         );
                         commands
                             .entity(ent_chip)
-                            .insert(Arrastrando { offset_y });
+                            .insert(Arrastrando { 
+                                offset: Vec2::new(0.0, offset_y) 
+                            });
                     }
                 }
             } else {

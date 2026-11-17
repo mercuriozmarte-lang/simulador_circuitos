@@ -44,7 +44,6 @@ pub struct DesplazamientoBarraChips {
     pub indice_inicio: usize,
 }
 
-// NUEVO: Controla qué barra lateral estamos moviendo en X o estirando en alto (Y)
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ModoAjusteBarra {
     MoverHorizontal,
@@ -54,6 +53,14 @@ pub enum ModoAjusteBarra {
 #[derive(Resource, Default)]
 pub struct EstadoArrastreBarra {
     pub activo: Option<(BarraChip, ModoAjusteBarra)>,
+}
+
+// NUEVO: Controla el rectángulo de selección múltiple con arrastre de ratón izquierdo
+#[derive(Resource, Default)]
+pub struct CajaSeleccion {
+    pub activa: bool,
+    pub inicio: Vec2,
+    pub actual: Vec2,
 }
 
 // ==========================================
@@ -69,6 +76,7 @@ pub enum TipoPuerta {
     Nor,
     Xor,
     Xnor,
+    TriState,
     Interruptor,
     Led,
     Reloj,
@@ -99,7 +107,6 @@ pub struct DatosChip {
     pub nombres_salida: Vec<String>,
 }
 
-// NUEVO: Memoria persistente recursiva para soportar pestillos (D-Latch), Flip-Flops y Registros
 #[derive(Clone, Debug, Default)]
 pub struct EstadoRedChip {
     pub salidas_nodos: Vec< Vec<bool> >,
@@ -138,11 +145,9 @@ pub struct InstanciaChip {
 #[derive(Component, Clone, Default)]
 pub struct EtiquetaNodo(pub String);
 
-// Identifica el rectángulo negro de fondo detrás de la etiqueta del Pin
 #[derive(Component)]
 pub struct FondoEtiquetaNodo;
 
-// Identifica el texto verde claro de la etiqueta del Pin
 #[derive(Component)]
 pub struct TextoEtiquetaNodo;
 
@@ -194,20 +199,22 @@ pub struct SegmentoDisplay(pub usize);
 #[derive(Component)]
 pub struct CentroHueco;
 
+// Guarda el desplazamiento X e Y respecto al cursor para mover columnas o bloques seleccionados
 #[derive(Component)]
 pub struct Arrastrando {
-    pub offset_y: f32,
+    pub offset: Vec2,
 }
 
-// NUEVO: Asa en el extremo superior de la barra para cambiar su longitud (altura)
+// NUEVO: Marca los nodos que están dentro de la selección actual
+#[derive(Component)]
+pub struct Seleccionado;
+
 #[derive(Component)]
 pub struct AsaAltoBarra(pub BarraChip);
 
-// NUEVO: Asa en el extremo inferior de la barra para moverla a izquierda/derecha
 #[derive(Component)]
 pub struct AsaMoverBarra(pub BarraChip);
 
-// NUEVO: Cartel informativo sobre el extremo superior de la barra
 #[derive(Component)]
 pub struct EtiquetaSuperiorBarra;
 

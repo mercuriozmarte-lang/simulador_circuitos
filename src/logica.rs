@@ -2,39 +2,83 @@
 // Fichero: src/logica.rs
 // ==========================================
 
-// --- Bloque 1: Importaciones ---
+// --- Bloque 1: Importaciones y Temporizador de Relojes ---
 use bevy::prelude::*;
 use crate::componentes::*;
 use crate::configuracion::ConfigApp;
 
-// --- Bloque 2: Propagación de Señales por los Cables ---
-pub fn propagar_cables(
-    q_cables: Query<&Cable>,
-    q_conectores: Query<(Entity, &TipoConector)>,
-    mut q_valores: Query<&mut ValorSeñal>,
+pub fn actualizar_relojes(
+    time: Res<Time>,
+    mut q_relojes: Query<(&mut ControlReloj, &mut Sprite)>,
+    config: Res<ConfigApp>,
 ) {
-    for (ent, tipo) in q_conectores.iter() {
-        if *tipo == TipoConector::Entrada {
-            if let Ok(mut val) = q_valores.get_mut(ent) {
-                val.0 = false;
-            }
-        }
-    }
+    let freqs: [f32; 5] = [0.0, 1.0, 2.0, 5.0, 10.0];
+    let dt = time.delta_secs();
 
-    for cable in q_cables.iter() {
-        if let Ok(val_origen) = q_valores.get(cable.origen) {
-            let estado_copiado = val_origen.0;
-            
-            if let Ok(mut val_destino) = q_valores.get_mut(cable.destino) {
-                val_destino.0 = estado_copiado;
+    for (mut reloj, mut sprite) in q_relojes.iter_mut() {
+        let f = freqs.get(reloj.indice_frec).copied().unwrap_or(0.0);
+        if f <= 0.0 {
+            reloj.estado = false;
+            sprite.color = config.col_estado_0;
+            continue;
+        }
+
+        let semiperiodo = 0.5 / f;
+        reloj.acumulador += dt;
+
+        if reloj.acumulador >= semiperiodo {
+            reloj.acumulador -= semiperiodo;
+            reloj.estado = !reloj.estado;
+            if reloj.estado {
+                sprite.color = config.col_estado_1;
+            } else {
+                sprite.color = config.col_estado_0;
             }
         }
     }
 }
-// ==========================================
-// Fichero: src/logica.rs
-// Bloque: Bloque 3: Evaluación de Puertas Lógicas, Displays y Chips
-// ==========================================
+
+// --- Bloque 2: Propagación de Señales y Limpieza de Cables ---
+pub fn limpiar_cables_huerfanos(
+    q_cables: Query<(Entity, &Cable)>,
+    q_conectores: Query<Entity, With<TipoConector>>,
+    mut commands: Commands,
+) {
+    for (ent_cable, cable) in q_cables.iter() {
+        if !q_conectores.contains(cable.origen) 
+            || !q_conectores.contains(cable.destino) 
+        {
+            commands.entity(ent_cable).despawn();
+        }
+    }
+}
+
+pub fn propagar_cables(
+    q_cables: Query<&Cable>,
+    mut q_conectores: Query<(&TipoConector, &mut ValorSeñal)>,
+) {
+    for (tipo, mut val) in q_conectores.iter_mut() {
+        if *tipo == TipoConector::Entrada {
+            val.0 = false;
+        }
+    }
+
+    for cable in q_cables.iter() {
+        let valor_origen = q_conectores
+            .get(cable.origen)
+            .map(|(_, v)| v.0)
+            .unwrap_or(false);
+
+        if let Ok((_, mut val_destino)) = 
+            q_conectores.get_mut(cable.destino) 
+        {
+            // Acumulación con |= para permitir buses compartidos gobernados por Tri-State Buffers
+            val_destino.0 |= valor_origen;
+        }
+    }
+}
+
+// --- Bloque 3: Evaluación de Puertas Lógicas, Tri-State, Displays y Chips ---
 pub fn evaluar_puertas(
     mut q_puertas: Query<
         (Entity, &NodoLogico, Option<&mut InstanciaChip>), 
@@ -170,6 +214,10 @@ pub fn evaluar_puertas(
                     .count();
                 unos % 2 == 0
             }
+            // Buffer Tri-State: Pin 0 = Enable, Pin 1 = Data
+            TipoPuerta::TriState => {
+                entradas_ordenadas[0] && entradas_ordenadas[1]
+            }
             TipoPuerta::Interruptor | TipoPuerta::Reloj => {
                 estado_emisor
             }
@@ -200,17 +248,16 @@ pub fn evaluar_puertas(
         }
 
         if !segmentos.is_empty() {
-            // Segmentos 0..6 = A..G, Segmento 7 = S (Signo negativo '-')
             let mascara_seg: [bool; 8] = match puerta.tipo {
                 TipoPuerta::Display7Seg => [
-                    entradas_ordenadas[1], // A
-                    entradas_ordenadas[2], // B
-                    entradas_ordenadas[3], // C
-                    entradas_ordenadas[4], // D
-                    entradas_ordenadas[5], // E
-                    entradas_ordenadas[6], // F
-                    entradas_ordenadas[7], // G
-                    entradas_ordenadas[0], // S (Signo '-')
+                    entradas_ordenadas[1],
+                    entradas_ordenadas[2],
+                    entradas_ordenadas[3],
+                    entradas_ordenadas[4],
+                    entradas_ordenadas[5],
+                    entradas_ordenadas[6],
+                    entradas_ordenadas[7],
+                    entradas_ordenadas[0],
                 ],
                 TipoPuerta::Display4Bits => {
                     let mut valor_hex = 0u8;
@@ -243,10 +290,7 @@ pub fn evaluar_puertas(
     }
 }
 
-// ==========================================
-// Fichero: src/logica.rs
-// Bloque: Bloque 4: Simulación Recursiva con Memoria Persistente (Flip-Flops y Registros)
-// ==========================================
+// --- Bloque 4: Simulación Recursiva con Memoria Persistente y Tri-State ("TRI") ---
 fn simular_red_chip(
     datos: &DatosChip,
     memoria: &mut EstadoRedChip,
@@ -268,15 +312,13 @@ fn simular_red_chip(
         }
     }
 
-    // 6 pasadas permiten propagar acarreos en sumadores de 8 bits (2x ADDER4 en cascada)
-    let pasadas = 6;
+    let pasadas = 8;
     for _ in 0..pasadas {
         for i in 0..n_nodos {
             if datos.pines_entrada.contains(&i) {
                 continue;
             }
 
-            // Ampliado a 32 para soportar sub-chips con 17 o 18 pines (como 8 BIT ADDR)
             let mut in_pines = vec![false; 32];
             let mut tiene_cables = false;
 
@@ -292,7 +334,7 @@ fn simular_red_chip(
                         .and_then(|salidas| salidas.get(pin_out))
                         .copied()
                         .unwrap_or(false);
-                    in_pines[pin_in] = val_cable;
+                    in_pines[pin_in] |= val_cable;
                 }
             }
 
@@ -326,6 +368,7 @@ fn simular_red_chip(
                 "NOR" => !(v0 || v1),
                 "XOR" => v0 ^ v1,
                 "XNOR" => !(v0 ^ v1),
+                "TRI" => tiene_cables && v0 && v1,
                 "LED" => v0,
                 _ => false,
             };
@@ -373,73 +416,41 @@ fn decodificar_hex_7seg(valor: u8) -> [bool; 7] {
         _ => [false; 7],
     }
 }
-// --- Bloque 5: Feedback Visual de Conectores ---
+
+// --- Bloque 5: Actualización Visual de Conectores (Huecos vs Conectados) ---
 pub fn actualizar_visuales_conectores(
     q_cables: Query<&Cable>,
-    mut q_conectores: Query<
-        (Entity, &ValorSeñal, &mut Sprite, &Children), 
-        With<TipoConector>
-    >,
+    mut q_conectores: Query<(
+        Entity, 
+        &ValorSeñal, 
+        &mut Sprite, 
+        &Children
+    )>,
     mut q_huecos: Query<&mut Visibility, With<CentroHueco>>,
     config: Res<ConfigApp>,
 ) {
-    for (ent_con, val, mut sprite, hijos) in q_conectores.iter_mut() {
-        let conectado = q_cables.iter().any(|c| {
+    for (ent_con, val_senal, mut sprite_con, hijos) in q_conectores.iter_mut() {
+        let esta_conectado = q_cables.iter().any(|c| {
             c.origen == ent_con || c.destino == ent_con
         });
 
-        if conectado {
-            if val.0 {
-                sprite.color = config.col_estado_1;
+        if esta_conectado {
+            if val_senal.0 {
+                sprite_con.color = config.col_estado_1;
             } else {
-                sprite.color = config.col_estado_0;
+                sprite_con.color = config.col_estado_0;
             }
         } else {
-            sprite.color = config.col_con_hueco;
+            sprite_con.color = config.col_con_hueco;
         }
 
         for hijo in hijos.iter() {
-            if let Ok(mut vis) = q_huecos.get_mut(hijo) {
-                if conectado {
-                    *vis = Visibility::Hidden;
+            if let Ok(mut vis_hueco) = q_huecos.get_mut(hijo) {
+                if esta_conectado {
+                    *vis_hueco = Visibility::Hidden;
                 } else {
-                    *vis = Visibility::Inherited;
+                    *vis_hueco = Visibility::Inherited;
                 }
-            }
-        }
-    }
-}
-
-// --- Bloque 6: Temporizador de Relojes ---
-pub fn actualizar_relojes(
-    time: Res<Time>,
-    mut q_relojes: Query<(&mut ControlReloj, &mut Sprite)>,
-    config: Res<ConfigApp>,
-) {
-    let frecuencias = [0.0, 1.0, 2.0, 5.0, 10.0];
-    let dt = time.delta_secs();
-
-    for (mut reloj, mut sprite) in q_relojes.iter_mut() {
-        let frec = frecuencias[reloj.indice_frec];
-
-        if frec <= 0.0 {
-            reloj.estado = false;
-            reloj.acumulador = 0.0;
-            sprite.color = config.col_estado_0;
-            continue;
-        }
-
-        let semi_periodo = 0.5 / frec;
-        reloj.acumulador += dt;
-
-        if reloj.acumulador >= semi_periodo {
-            reloj.acumulador -= semi_periodo;
-            reloj.estado = !reloj.estado;
-
-            if reloj.estado {
-                sprite.color = config.col_estado_1;
-            } else {
-                sprite.color = config.col_estado_0;
             }
         }
     }

@@ -21,7 +21,7 @@ use crate::{
 
 // ==========================================
 // Fichero: src/raton.rs
-// Bloque: Bloque 2: Detectar Clic Izquierdo, Asas de Barras y Apilado en Mano
+// Bloque: Bloque 2: Detectar Clic Izquierdo, Selección por Rectángulo, Borrado Múltiple y Duplicado
 // ==========================================
 pub fn detectar_clic_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
@@ -47,6 +47,7 @@ pub fn detectar_clic_nodo(
             &NodoLogico, 
             Option<&InstanciaChip>,
             Option<&Arrastrando>,
+            Option<&Seleccionado>,
         ), 
         With<NodoLogico>
     >,
@@ -73,6 +74,7 @@ pub fn detectar_clic_nodo(
         ResMut<EstadoCrearLinea>,
         ResMut<CodoArrastrado>,
         ResMut<EstadoArrastreBarra>,
+        ResMut<CajaSeleccion>,
         ResMut<NextState<ModoApp>>,
     ),
     mut recursos_render: (
@@ -107,17 +109,33 @@ pub fn detectar_clic_nodo(
         ref mut estado_linea,
         ref mut codo_arrastrado,
         ref mut arrastre_barra,
+        ref mut caja_sel,
         ref mut next_state,
     ) = estados_edicion;
 
+    // 0. BORRAR BLOQUE SELECCIONADO CON TECLA [DELETE / SUPR] O [BACKSPACE]
+    if keys.just_pressed(KeyCode::Delete) || keys.just_pressed(KeyCode::Backspace) {
+        let mut borrado = false;
+        for (ent, _, _, _, _, opt_sel) in q_nodos.iter() {
+            if opt_sel.is_some() {
+                commands.entity(ent).despawn();
+                borrado = true;
+            }
+        }
+        if borrado {
+            return;
+        }
+    }
+
+    // 0A. SI YA LLEVAMOS PIEZAS ENGANCHADAS AL CURSOR (Estilo DLS)
     let mut en_mano: Vec<(Entity, TipoPuerta, Option<DatosChip>, f32)> = Vec::new();
-    for (ent, _, nodo, opt_chip, opt_arr) in q_nodos.iter() {
+    for (ent, _, nodo, opt_chip, opt_arr, _) in q_nodos.iter() {
         if let Some(arr) = opt_arr {
             en_mano.push((
                 ent,
                 nodo.tipo,
                 opt_chip.map(|c| c.datos.clone()),
-                arr.offset_y,
+                arr.offset.y,
             ));
         }
     }
@@ -154,7 +172,9 @@ pub fn detectar_clic_nodo(
                     );
                     commands
                         .entity(ent_nuevo)
-                        .insert(Arrastrando { offset_y: nuevo_offset });
+                        .insert(Arrastrando { 
+                            offset: Vec2::new(0.0, nuevo_offset) 
+                        });
                 }
             }
             return;
@@ -178,8 +198,9 @@ pub fn detectar_clic_nodo(
         }
     }
 
+    // 0B. Duplicar pieza bajo el cursor con tecla [D]
     if en_mano.is_empty() && keys.just_pressed(KeyCode::KeyD) {
-        for (_, trf, nodo, opt_chip, _) in q_nodos.iter() {
+        for (_, trf, nodo, opt_chip, _, _) in q_nodos.iter() {
             let centro = trf.translation.truncate();
             if pos_mundo.distance(centro) < config.rad_clic_nodo {
                 let nueva_pos = Vec2::new(centro.x, centro.y - config.sep_pines_chip);
@@ -190,7 +211,8 @@ pub fn detectar_clic_nodo(
                     | TipoPuerta::Nand
                     | TipoPuerta::Nor
                     | TipoPuerta::Xor
-                    | TipoPuerta::Xnor => {
+                    | TipoPuerta::Xnor
+                    | TipoPuerta::TriState => {
                         crear_puerta(
                             commands,
                             meshes,
@@ -234,7 +256,7 @@ pub fn detectar_clic_nodo(
                     TipoPuerta::Display4Bits => {
                         crear_display(
                             commands, 
-                            Vec2::new(centro.x, centro.y - 150.0), 
+                            Vec2::new(centro.x, centro.y - 100.0), 
                             true, 
                             &config
                         );
@@ -242,7 +264,7 @@ pub fn detectar_clic_nodo(
                     TipoPuerta::Display7Seg => {
                         crear_display(
                             commands, 
-                            Vec2::new(centro.x, centro.y - 150.0), 
+                            Vec2::new(centro.x, centro.y - 200.0), 
                             false, 
                             &config
                         );
@@ -257,7 +279,7 @@ pub fn detectar_clic_nodo(
                             );
                             commands
                                 .entity(ent_c)
-                                .insert(Arrastrando { offset_y: 0.0 });
+                                .insert(Arrastrando { offset: Vec2::ZERO });
                         }
                     }
                 }
@@ -334,7 +356,32 @@ pub fn detectar_clic_nodo(
         return;
     }
 
-    // 0C. Clic sobre el Asa Inferior (< MOVER >) o Superior (^ ALTO v) de una Barra
+    // 0C. PRIORIDAD AGARRADEROS DE SELECCIÓN MÚLTIPLE:
+    //     Si el clic cae dentro del recuadro celeste (92x56 -> +/-46 en X, +/-28 en Y)
+    //     de cualquier nodo `Seleccionado` (incluidos Interruptores y LEDs),
+    //     iniciamos el arrastre de todo el bloque seleccionado sin conmutar interruptores.
+    let clic_en_agarradero_seleccionado = q_nodos.iter().any(|(_, trf, _, _, _, opt_sel)| {
+        if opt_sel.is_some() {
+            let c = trf.translation.truncate();
+            (pos_mundo.x - c.x).abs() <= 46.0 && (pos_mundo.y - c.y).abs() <= 28.0
+        } else {
+            false
+        }
+    });
+
+    if clic_en_agarradero_seleccionado {
+        for (ent, trf, _, _, _, opt_sel) in q_nodos.iter() {
+            if opt_sel.is_some() {
+                let centro = trf.translation.truncate();
+                commands.entity(ent).insert(Arrastrando {
+                    offset: centro - pos_mundo,
+                });
+            }
+        }
+        return;
+    }
+
+    // 0D. Clic sobre Asas de Barras
     for (g_trf, asa_m) in q_asas_mover.iter() {
         let pos_asa = g_trf.translation().truncate();
         if (pos_mundo.x - pos_asa.x).abs() < 45.0 
@@ -375,6 +422,7 @@ pub fn detectar_clic_nodo(
         }
     }
 
+    // 1B. Clic sobre un codo de cable
     for (ent_cable, cable) in q_cables.iter() {
         for (idx, &pos_codo) in cable.puntos_intermedios.iter().enumerate() {
             if pos_mundo.distance(pos_codo) < 10.0 {
@@ -384,6 +432,7 @@ pub fn detectar_clic_nodo(
         }
     }
 
+    // 2. Clic en cuadrado de cambio de estado (0 / 1)
     for (g_trf, mut boton, mut sprite) in q_botones.iter_mut() {
         let pos_boton = g_trf.translation().truncate();
         if (pos_mundo.x - pos_boton.x).abs() < 11.0 
@@ -399,6 +448,7 @@ pub fn detectar_clic_nodo(
         }
     }
 
+    // 2B. Clic en control de frecuencia del Reloj
     let etiquetas_frec = ["OFF", "1Hz", "2Hz", "5Hz", "10Hz"];
     for (g_trf, mut reloj, mut sprite, hijos) in q_relojes.iter_mut() {
         let pos_ctrl = g_trf.translation().truncate();
@@ -424,6 +474,7 @@ pub fn detectar_clic_nodo(
         }
     }
 
+    // 2C. Clic en botón [VER] de un Chip
     for (g_trf, btn_ver) in q_botones_ver_chip.iter() {
         let pos_btn = g_trf.translation().truncate();
         if (pos_mundo.x - pos_btn.x).abs() < 21.0 
@@ -434,7 +485,9 @@ pub fn detectar_clic_nodo(
         }
     }
 
-    for (entidad, trf, nodo, _, _) in q_nodos.iter() {
+    // 3. Prioridad 3: Clic en el cuerpo de un nodo no seleccionado para arrastrarlo individualmente
+    let mut nodo_clicado = None;
+    for (entidad, trf, nodo, _, _, _) in q_nodos.iter() {
         let centro_nodo = trf.translation.truncate();
         let clic_dentro = if matches!(
             nodo.tipo, 
@@ -447,23 +500,53 @@ pub fn detectar_clic_nodo(
         };
 
         if clic_dentro {
-            commands.entity(entidad).insert(Arrastrando { offset_y: 0.0 });
-            return; 
+            nodo_clicado = Some(entidad);
+            break;
         }
     }
+
+    if let Some(ent_clic) = nodo_clicado {
+        for (ent, _, _, _, _, opt_sel) in q_nodos.iter() {
+            if opt_sel.is_some() {
+                commands.entity(ent).remove::<Seleccionado>();
+            }
+        }
+        commands.entity(ent_clic).insert(Arrastrando {
+            offset: Vec2::ZERO,
+        });
+        return;
+    }
+
+    // 4. CLIC EN ZONA VACÍA DEL LIENZO: Deseleccionamos y abrimos Rectángulo de Selección
+    for (ent, _, _, _, _, opt_sel) in q_nodos.iter() {
+        if opt_sel.is_some() {
+            commands.entity(ent).remove::<Seleccionado>();
+        }
+    }
+    caja_sel.activa = true;
+    caja_sel.inicio = pos_mundo;
+    caja_sel.actual = pos_mundo;
 }
 
 // ==========================================
 // Fichero: src/raton.rs
-// Bloque: Bloque 3: Soltar Ratón, Asas de Barra, Snap e Imantar a Barras
+// Bloque: Bloque 3: Soltar Ratón, Cerrar Rectángulo de Selección, Snap e Imantar a Barras
 // ==========================================
 pub fn soltar_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
+    // Añadido Without<Arrastrando> para que sea disjunto con q_arrastrando en Transform
+    q_nodos_todos: Query<
+        (Entity, &Transform), 
+        (With<NodoLogico>, Without<Arrastrando>)
+    >,
     mut q_arrastrando: Query<
         (Entity, &mut Transform, &NodoLogico), 
         With<Arrastrando>
     >,
-    q_barras: Query<(&Transform, &Sprite, &BarraChip), Without<Arrastrando>>,
+    q_barras: Query<
+        (&Transform, &Sprite, &BarraChip), 
+        Without<Arrastrando>
+    >,
     q_conectores: Query<
         (Entity, &GlobalTransform, &TipoConector)
     >,
@@ -477,6 +560,7 @@ pub fn soltar_nodo(
     mut estado_linea: ResMut<EstadoCrearLinea>,
     mut codo_arrastrado: ResMut<CodoArrastrado>,
     mut arrastre_barra: ResMut<EstadoArrastreBarra>,
+    mut caja_sel: ResMut<CajaSeleccion>,
     mut next_state: ResMut<NextState<ModoApp>>,
     mut commands: Commands,
     config: Res<ConfigApp>,
@@ -485,7 +569,29 @@ pub fn soltar_nodo(
         return;
     }
 
-    // Si estábamos moviendo o estirando una barra con sus asas, terminamos el ajuste
+    // 0. Si estábamos trazando un Rectángulo de Selección, seleccionamos los nodos en su interior
+    if caja_sel.activa {
+        caja_sel.activa = false;
+        let min_x = caja_sel.inicio.x.min(caja_sel.actual.x);
+        let max_x = caja_sel.inicio.x.max(caja_sel.actual.x);
+        let min_y = caja_sel.inicio.y.min(caja_sel.actual.y);
+        let max_y = caja_sel.inicio.y.max(caja_sel.actual.y);
+
+        if (max_x - min_x) > 6.0 || (max_y - min_y) > 6.0 {
+            for (ent, trf) in q_nodos_todos.iter() {
+                let p = trf.translation.truncate();
+                if p.x >= min_x 
+                    && p.x <= max_x 
+                    && p.y >= min_y 
+                    && p.y <= max_y 
+                {
+                    commands.entity(ent).insert(Seleccionado);
+                }
+            }
+        }
+        return;
+    }
+
     if arrastre_barra.activo.take().is_some() {
         return;
     }
@@ -511,7 +617,10 @@ pub fn soltar_nodo(
     for (entidad, mut trf, nodo) in q_arrastrando.iter_mut() {
         let paso = if matches!(
             nodo.tipo, 
-            TipoPuerta::Interruptor | TipoPuerta::Led
+            TipoPuerta::Interruptor 
+            | TipoPuerta::Led 
+            | TipoPuerta::Display4Bits 
+            | TipoPuerta::Display7Seg
         ) {
             config.paso_snap_io
         } else {
@@ -605,7 +714,7 @@ pub fn soltar_nodo(
 
 // ==========================================
 // Fichero: src/raton.rs
-// Bloque: Bloque 4: Mover Nodo(s), Codos o Ajustar Barras (Posición X y Altura)
+// Bloque: Bloque 4: Mover Nodo(s), Codos, Barras o Actualizar Rectángulo de Selección
 // ==========================================
 pub fn mover_nodo_arrastrado(
     keys: Res<ButtonInput<KeyCode>>,
@@ -614,13 +723,18 @@ pub fn mover_nodo_arrastrado(
         (&Camera, &GlobalTransform), 
         With<CamaraPrincipal>
     >,
-    q_global_trf: Query<&GlobalTransform>,
+    q_global_trf: Query<&GlobalTransform, Without<CamaraPrincipal>>,
     arrastre_barra: Res<EstadoArrastreBarra>,
-    mut q_barras_y_nodos: (
-        Query<(&mut Transform, &Arrastrando), Without<BarraChip>>,
+    mut caja_sel: ResMut<CajaSeleccion>,
+    // Filtros Without cruzados en las 4 consultas que acceden a &mut Transform
+    q_barras_y_nodos: (
+        Query<
+            (&mut Transform, &Arrastrando),
+            Without<BarraChip>,
+        >,
         Query<
             (&mut Transform, &mut Sprite, &BarraChip, &Children),
-            Without<Arrastrando>,
+            (Without<Arrastrando>, Without<PegadoABarra>),
         >,
         Query<
             (&mut Transform, &PegadoABarra),
@@ -656,6 +770,11 @@ pub fn mover_nodo_arrastrado(
         return;
     };
 
+    if caja_sel.activa {
+        caja_sel.actual = pos_mundo;
+        return;
+    }
+
     let (
         mut q_arrastrando,
         mut q_barras,
@@ -663,7 +782,6 @@ pub fn mover_nodo_arrastrado(
         mut q_hijos_barra,
     ) = q_barras_y_nodos;
 
-    // 1. Si estamos arrastrando un Asa de Barra (< MOVER > o ^ ALTO v)
     if let Some((barra_obj, modo_ajuste)) = arrastre_barra.activo {
         for (mut trf_b, mut spr_b, tipo_b, hijos_b) in q_barras.iter_mut() {
             if *tipo_b != barra_obj {
@@ -681,7 +799,6 @@ pub fn mover_nodo_arrastrado(
                     }
                     trf_b.translation.x = nuevo_x;
 
-                    // Movemos solidariamente todos los Interruptores/LEDs pegados a esta barra
                     for (mut trf_pin, pegado) in q_pegados.iter_mut() {
                         if pegado.0 == barra_obj {
                             trf_pin.translation.x = nuevo_x;
@@ -696,7 +813,6 @@ pub fn mover_nodo_arrastrado(
                     let nuevo_alto = (semialto * 2.0).max(200.0);
                     spr_b.custom_size = Some(Vec2::new(18.0, nuevo_alto));
 
-                    // Recolocamos las asas y el cartel en los nuevos extremos de la barra
                     for hijo in hijos_b.iter() {
                         if let Ok((mut trf_h, opt_alto, opt_mover, opt_etq)) = 
                             q_hijos_barra.get_mut(hijo) 
@@ -716,13 +832,11 @@ pub fn mover_nodo_arrastrado(
         return;
     }
 
-    // 2. Mover nodos normales arrastrados
     for (mut trf, arr) in q_arrastrando.iter_mut() {
-        trf.translation.x = pos_mundo.x;
-        trf.translation.y = pos_mundo.y + arr.offset_y;
+        trf.translation.x = pos_mundo.x + arr.offset.x;
+        trf.translation.y = pos_mundo.y + arr.offset.y;
     }
 
-    // 3. Mover codo de cable arrastrado
     if let Some((ent_cable, idx)) = codo_arrastrado.seleccion {
         if let Ok(mut cable) = q_cables.get_mut(ent_cable) {
             let pto_ref = if idx > 0 {
@@ -749,10 +863,7 @@ pub fn mover_nodo_arrastrado(
     }
 }
 
-// ==========================================
-// Fichero: src/raton.rs
-// Bloque: Bloque 5: Borrar Nodo, Codo, Cable, Insertar Punto (P + Clic Der) o Abrir Menú
-// ==========================================
+// --- Bloque 5: Borrar Nodo, Codo, Cable, Insertar Punto (P + Clic Der) o Abrir Menú ---
 pub fn borrar_con_clic_derecho(
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -762,7 +873,7 @@ pub fn borrar_con_clic_derecho(
         With<CamaraPrincipal>
     >,
     q_arrastrando: Query<Entity, With<Arrastrando>>,
-    q_nodos: Query<(Entity, &Transform), With<NodoLogico>>,
+    q_nodos: Query<(Entity, &Transform, Option<&Seleccionado>), With<NodoLogico>>,
     mut q_cables: Query<(Entity, &mut Cable)>,
     q_global_trf: Query<&GlobalTransform>,
     q_menu: Query<Entity, With<MenuContextual>>,
@@ -777,7 +888,6 @@ pub fn borrar_con_clic_derecho(
         return;
     }
 
-    // Si llevábamos una columna de chips en la mano, el clic derecho cancela su colocación
     if !q_arrastrando.is_empty() {
         for ent in q_arrastrando.iter() {
             commands.entity(ent).despawn();
@@ -807,8 +917,6 @@ pub fn borrar_con_clic_derecho(
             cam_trf, 
             pos_pantalla
         ) {
-            // 0. MODO INSERTAR ESQUINA (Tecla P + Clic Derecho sobre un tramo de cable):
-            //    Inserta un nuevo punto intermedio en el tramo tocado sin borrar nada.
             if keys.pressed(KeyCode::KeyP) {
                 for (_, mut cable) in q_cables.iter_mut() {
                     if let (Ok(trf_ori), Ok(trf_des)) = (
@@ -847,16 +955,23 @@ pub fn borrar_con_clic_derecho(
                 return;
             }
 
-            // 1. Borrar un nodo si el ratón está encima (y no se pulsa P)
-            for (ent_nodo, trf) in q_nodos.iter() {
+            // Si hace clic derecho sobre un nodo: si pertenecía a una selección, borra todo el bloque seleccionado
+            for (ent_nodo, trf, opt_sel) in q_nodos.iter() {
                 let centro = trf.translation.truncate();
                 if pos_mundo.distance(centro) < config.rad_clic_nodo {
-                    commands.entity(ent_nodo).despawn();
+                    if opt_sel.is_some() {
+                        for (e_s, _, s) in q_nodos.iter() {
+                            if s.is_some() {
+                                commands.entity(e_s).despawn();
+                            }
+                        }
+                    } else {
+                        commands.entity(ent_nodo).despawn();
+                    }
                     return;
                 }
             }
 
-            // 2A. Borrar SOLO un codo si hace clic derecho sobre la esquina
             let mut codo_a_borrar = None;
             for (ent_c, cable) in q_cables.iter() {
                 if let Some(idx) = cable
@@ -876,7 +991,6 @@ pub fn borrar_con_clic_derecho(
                 return;
             }
 
-            // 2B. Borrar el cable entero si hace clic derecho sobre un tramo recto
             for (ent_cable, cable) in q_cables.iter() {
                 if let (Ok(trf_ori), Ok(trf_des)) = (
                     q_global_trf.get(cable.origen),
