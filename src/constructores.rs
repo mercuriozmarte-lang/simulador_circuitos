@@ -227,7 +227,7 @@ fn crear_malla_arco_xor(
 
 // ==========================================
 // Fichero: src/constructores.rs
-// Bloque: Bloque 4: Creador de Puertas Lógicas y Buffer Tri-State (con Punto Enable)
+// Bloque: Bloque 4: Creador de Puertas Lógicas y Buffer Tri-State (Pines a +/-12.5px)
 // ==========================================
 pub fn crear_puerta(
     commands: &mut Commands,
@@ -278,34 +278,33 @@ pub fn crear_puerta(
     ))
     .with_children(|padre| {
         if tipo_puerta == TipoPuerta::TriState {
-            // 1. Pista horizontal de la patilla superior (Pin 0 = Enable) hasta X = -6.0
+            // 1. Pista horizontal de la patilla superior (Pin 0 = Enable en Y = +12.5)
             padre.spawn((
                 Sprite {
                     color: col_borde,
                     custom_size: Some(Vec2::new(42.0, 3.5)),
                     ..default()
                 },
-                Transform::from_xyz(-27.0, 18.0, 0.02),
+                Transform::from_xyz(-27.0, 12.5, 0.02),
             ));
             // Bajada vertical hacia el punto de control en el lomo superior del triángulo
             padre.spawn((
                 Sprite {
                     color: col_borde,
-                    custom_size: Some(Vec2::new(3.5, 9.0)),
+                    custom_size: Some(Vec2::new(3.5, 6.0)),
                     ..default()
                 },
-                Transform::from_xyz(-6.0, 14.0, 0.02),
+                Transform::from_xyz(-6.0, 10.5, 0.02),
             ));
 
-            // PUNTO / SEÑAL DE ENABLE sobre el borde oblicuo superior del triángulo:
-            // Aro exterior oscuro + Punto interior que cambia de rojo (0) a verde (1) según EN
+            // Punto indicador de Enable sobre el lomo superior del triángulo
             padre.spawn((
                 Sprite {
                     color: col_borde,
                     custom_size: Some(Vec2::new(10.0, 10.0)),
                     ..default()
                 },
-                Transform::from_xyz(-6.0, 10.0, 0.14),
+                Transform::from_xyz(-6.0, 8.5, 0.14),
             ));
             padre.spawn((
                 Sprite {
@@ -313,11 +312,10 @@ pub fn crear_puerta(
                     custom_size: Some(Vec2::new(6.0, 6.0)),
                     ..default()
                 },
-                Transform::from_xyz(-6.0, 10.0, 0.18),
+                Transform::from_xyz(-6.0, 8.5, 0.18),
                 IndicadorLed,
             ));
 
-            // Etiqueta "EN" junto al pin superior de habilitación
             padre.spawn((
                 Text2d::new("EN"),
                 TextFont {
@@ -325,10 +323,10 @@ pub fn crear_puerta(
                     ..default()
                 },
                 TextColor(col_borde),
-                Transform::from_xyz(-34.0, 25.0, 0.20),
+                Transform::from_xyz(-34.0, 20.5, 0.20),
             ));
 
-            // 2. Patilla inferior (Pin 1 = Data): entra a la base izquierda del triángulo
+            // 2. Patilla inferior (Pin 1 = Data en Y = -12.5)
             padre.spawn((
                 Sprite {
                     color: col_borde,
@@ -338,7 +336,7 @@ pub fn crear_puerta(
                 Transform::from_xyz(-35.0, -12.5, 0.02),
             ));
 
-            // 3. Patilla de salida derecha
+            // 3. Patilla de salida derecha (Y = 0.0)
             padre.spawn((
                 Sprite {
                     color: col_borde,
@@ -348,7 +346,6 @@ pub fn crear_puerta(
                 Transform::from_xyz(35.0, 0.0, 0.02),
             ));
 
-            // 4. Cuerpo triangular vectorial
             let pts_ext = [
                 Vec2::new(-24.0, 22.0),
                 Vec2::new(-24.0, -24.0),
@@ -389,14 +386,18 @@ pub fn crear_puerta(
 
             let e_en = padre.spawn((
                 bundle_conector(
-                    Vec3::new(x_con_in, 18.0, 0.25),
+                    Vec3::new(x_con_in, 12.5, 0.25),
                     TipoConector::Entrada,
                     config,
                 ),
                 PinEntrada(0),
             ))
             .with_children(|con| {
-                poblar_interior_conector(con, TipoConector::Entrada, config);
+                poblar_interior_conector(
+                    con, 
+                    TipoConector::Entrada, 
+                    config
+                );
             })
             .id();
             entradas.push(e_en);
@@ -410,7 +411,11 @@ pub fn crear_puerta(
                 PinEntrada(1),
             ))
             .with_children(|con| {
-                poblar_interior_conector(con, TipoConector::Entrada, config);
+                poblar_interior_conector(
+                    con, 
+                    TipoConector::Entrada, 
+                    config
+                );
             })
             .id();
             entradas.push(e_dt);
@@ -421,7 +426,11 @@ pub fn crear_puerta(
                 config,
             ))
             .with_children(|con| {
-                poblar_interior_conector(con, TipoConector::Salida, config);
+                poblar_interior_conector(
+                    con, 
+                    TipoConector::Salida, 
+                    config
+                );
             })
             .id();
             ent_salida = Some(e_out);
@@ -438,13 +447,14 @@ pub fn crear_puerta(
                 Transform::from_xyz(-35.0, 0.0, 0.02),
             ));
         } else {
+            // Patillas de entrada homologadas a +/-12.5px (paso 25px) para alineación exacta
             padre.spawn((
                 Sprite {
                     color: col_borde,
                     custom_size: Some(Vec2::new(28.0, 3.5)),
                     ..default()
                 },
-                Transform::from_xyz(-34.0, 15.0, 0.02),
+                Transform::from_xyz(-34.0, 12.5, 0.02),
             ));
             padre.spawn((
                 Sprite {
@@ -452,7 +462,7 @@ pub fn crear_puerta(
                     custom_size: Some(Vec2::new(28.0, 3.5)),
                     ..default()
                 },
-                Transform::from_xyz(-34.0, -15.0, 0.02),
+                Transform::from_xyz(-34.0, -12.5, 0.02),
             ));
         }
 
@@ -603,35 +613,47 @@ pub fn crear_puerta(
                 PinEntrada(0),
             ))
             .with_children(|con| {
-                poblar_interior_conector(con, TipoConector::Entrada, config);
+                poblar_interior_conector(
+                    con, 
+                    TipoConector::Entrada, 
+                    config
+                );
             })
             .id();
             entradas.push(e_in);
         } else {
             let e_in1 = padre.spawn((
                 bundle_conector(
-                    Vec3::new(x_con_in, 15.0, 0.25),
+                    Vec3::new(x_con_in, 12.5, 0.25),
                     TipoConector::Entrada,
                     config,
                 ),
                 PinEntrada(0),
             ))
             .with_children(|con| {
-                poblar_interior_conector(con, TipoConector::Entrada, config);
+                poblar_interior_conector(
+                    con, 
+                    TipoConector::Entrada, 
+                    config
+                );
             })
             .id();
             entradas.push(e_in1);
 
             let e_in2 = padre.spawn((
                 bundle_conector(
-                    Vec3::new(x_con_in, -15.0, 0.25),
+                    Vec3::new(x_con_in, -12.5, 0.25),
                     TipoConector::Entrada,
                     config,
                 ),
                 PinEntrada(1),
             ))
             .with_children(|con| {
-                poblar_interior_conector(con, TipoConector::Entrada, config);
+                poblar_interior_conector(
+                    con, 
+                    TipoConector::Entrada, 
+                    config
+                );
             })
             .id();
             entradas.push(e_in2);
@@ -643,7 +665,11 @@ pub fn crear_puerta(
             config,
         ))
         .with_children(|con| {
-            poblar_interior_conector(con, TipoConector::Salida, config);
+            poblar_interior_conector(
+                con, 
+                TipoConector::Salida, 
+                config
+            );
         })
         .id();
         ent_salida = Some(e_out);

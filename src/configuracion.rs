@@ -15,7 +15,7 @@ pub struct ConfigApp {
     pub tam_puerta: Vec2,
     pub tam_conector: Vec2,
     pub grosor_cable: f32,
-    // Separación vertical entre patillas de un Chip (25.0 encaja con cuadrícula y snap de 5px)
+    // Separación vertical entre patillas de un Chip (25.0 encaja con cuadrícula y snap de 12.5px)
     pub sep_pines_chip: f32,
     // Dimensiones del cuerpo de agarre de Interruptores y LEDs
     pub ancho_agarre_io: f32,
@@ -37,7 +37,7 @@ pub struct ConfigApp {
     pub col_con_hueco: Color,
     pub col_cable_tmp: Color,
 
-    // Colores para las etiquetas de nombre de Pin (Fondo negro y letra verde claro)
+    // Colores para las etiquetas de nombre de Pin
     pub col_etiqueta_fondo: Color,
     pub col_etiqueta_texto: Color,
     
@@ -48,7 +48,7 @@ pub struct ConfigApp {
 
 // ==========================================
 // Fichero: src/configuracion.rs
-// Bloque: Bloque 3: Valores por Defecto
+// Bloque: Bloque 3: Valores por Defecto (Grid Armónico de 12.5px)
 // ==========================================
 impl Default for ConfigApp {
     fn default() -> Self {
@@ -56,17 +56,17 @@ impl Default for ConfigApp {
             tam_puerta: Vec2::new(100.0, 60.0),
             tam_conector: Vec2::new(12.0, 12.0),
             grosor_cable: 3.5,
-            // Paso entre pines de Chip: 25.0px (múltiplo exacto de paso_snap_io = 5.0)
+            // Paso entre pines de Chip: 25.0px (múltiplo exacto de paso_snap = 12.5)
             sep_pines_chip: 25.0,
             // Cuerpo de agarre más ancho (38px) y más bajo (20px) para Interruptores y LEDs
             ancho_agarre_io: 38.0,
             alto_io: 20.0,
-            
+
             rad_clic_con: 12.0,
             rad_clic_nodo: 35.0,
-            paso_snap_puerta: 50.0,
-            paso_snap_io: 5.0,
-            paso_snap_codo: 5.0,
+            paso_snap_puerta: 12.5,
+            paso_snap_io: 12.5,
+            paso_snap_codo: 12.5,
 
             col_fondo: Color::srgb(0.90, 0.92, 0.96),
             col_cuadricula: Color::srgb(0.76, 0.79, 0.84),
@@ -78,7 +78,7 @@ impl Default for ConfigApp {
 
             col_etiqueta_fondo: Color::srgb(0.05, 0.06, 0.08),
             col_etiqueta_texto: Color::srgb(0.25, 1.0, 0.35),
-            
+
             col_estado_0: Color::srgb(0.85, 0.20, 0.20),
             col_estado_1: Color::srgb(0.0, 0.6, 0.0),
         }

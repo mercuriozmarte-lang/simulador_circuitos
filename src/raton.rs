@@ -20,10 +20,7 @@ use crate::{
     crear_conector_bus,
 };
 
-// ==========================================
-// Fichero: src/raton.rs
-// Bloque: Bloque 2: Detectar Clic Izquierdo, Trazado de Cables y Buses, Conector de Bus y Selección
-// ==========================================
+// --- Bloque 2: Detectar Clic Izquierdo, Trazado de Cables y Buses, Conector de Bus y Selección ---
 pub fn detectar_clic_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -41,7 +38,6 @@ pub fn detectar_clic_nodo(
             With<SelectorCarga>
         )>
     >,
-    // Agrupamos las consultas de lectura del circuito en una tupla para no superar los 16 parámetros de Bevy
     consultas_circuito: (
         Query<
             (
@@ -419,10 +415,15 @@ pub fn detectar_clic_nodo(
     ) = controles_nodos;
 
     if *estado_app.get() == ModoApp::CreandoLinea {
+        let pto_previo = estado_linea
+            .puntos_intermedios
+            .last()
+            .copied()
+            .unwrap_or(estado_linea.origen_pos);
+
         if estado_linea.es_bus {
             let n_bus = estado_linea.num_hilos_bus.max(2);
 
-            // A) ¿Clic sobre el anillo circular (PuertoTroncoBus) de otro Conector de Bus?
             for (g_trf, puerto_dest) in q_puertos_bus.iter() {
                 let pos_puerto = g_trf.translation().truncate();
                 if pos_mundo.distance(pos_puerto) < 16.0 {
@@ -437,12 +438,24 @@ pub fn detectar_clic_nodo(
                                 .unwrap_or(0);
 
                             if n_dest == n_bus {
+                                let mut codos = estado_linea
+                                    .puntos_intermedios
+                                    .clone();
+                                if keys.pressed(KeyCode::KeyL) {
+                                    let esquina = ajustar_ortogonal_90(
+                                        pto_previo, 
+                                        pos_puerto
+                                    );
+                                    if esquina.distance(pto_previo) > 1.0 
+                                        && esquina.distance(pos_puerto) > 1.0 
+                                    {
+                                        codos.push(esquina);
+                                    }
+                                }
                                 commands.spawn(CableBus {
                                     origen_nodo: orig_nodo,
                                     destino_nodo: puerto_dest.nodo_padre,
-                                    puntos_intermedios: estado_linea
-                                        .puntos_intermedios
-                                        .clone(),
+                                    puntos_intermedios: codos,
                                     num_hilos: n_bus,
                                     estados: vec![false; n_bus],
                                 });
@@ -456,7 +469,6 @@ pub fn detectar_clic_nodo(
                 }
             }
 
-            // B) ¿Clic sobre un CODO existente de otro CableBus (Unión en "T" al tronco del Bus)?
             for (_, cb_existente) in q_cables_bus.iter() {
                 if cb_existente.num_hilos != n_bus {
                     continue;
@@ -471,6 +483,17 @@ pub fn detectar_clic_nodo(
                             let mut nuevos_codos = estado_linea
                                 .puntos_intermedios
                                 .clone();
+                            if keys.pressed(KeyCode::KeyL) {
+                                let esquina = ajustar_ortogonal_90(
+                                    pto_previo, 
+                                    pos_codo
+                                );
+                                if esquina.distance(pto_previo) > 1.0 
+                                    && esquina.distance(pos_codo) > 1.0 
+                                {
+                                    nuevos_codos.push(esquina);
+                                }
+                            }
                             nuevos_codos.push(pos_codo);
                             for k in (0..idx_codo).rev() {
                                 nuevos_codos.push(
@@ -507,12 +530,24 @@ pub fn detectar_clic_nodo(
                                     });
 
                                 if !duplicado {
+                                    let mut codos = estado_linea
+                                        .puntos_intermedios
+                                        .clone();
+                                    if keys.pressed(KeyCode::KeyL) {
+                                        let esquina = ajustar_ortogonal_90(
+                                            pto_previo, 
+                                            pos_conector
+                                        );
+                                        if esquina.distance(pto_previo) > 1.0 
+                                            && esquina.distance(pos_conector) > 1.0 
+                                        {
+                                            codos.push(esquina);
+                                        }
+                                    }
                                     commands.spawn(Cable {
                                         origen: orig,
                                         destino: ent_destino,
-                                        puntos_intermedios: estado_linea
-                                            .puntos_intermedios
-                                            .clone(),
+                                        puntos_intermedios: codos,
                                     });
                                 }
                             }
@@ -525,12 +560,6 @@ pub fn detectar_clic_nodo(
             }
         }
 
-        let pto_previo = estado_linea
-            .puntos_intermedios
-            .last()
-            .copied()
-            .unwrap_or(estado_linea.origen_pos);
-
         let pos_objetivo = if keys.pressed(KeyCode::KeyL) {
             ajustar_ortogonal_90(pto_previo, pos_mundo)
         } else {
@@ -538,10 +567,26 @@ pub fn detectar_clic_nodo(
         };
 
         let paso_codo = config.paso_snap_codo;
-        let codo_snap = Vec2::new(
-            (pos_objetivo.x / paso_codo).round() * paso_codo,
-            (pos_objetivo.y / paso_codo).round() * paso_codo,
-        );
+        let codo_snap = if keys.pressed(KeyCode::KeyL) {
+            let dx = (pos_mundo.x - pto_previo.x).abs();
+            let dy = (pos_mundo.y - pto_previo.y).abs();
+            if dx >= dy {
+                Vec2::new(
+                    (pos_objetivo.x / paso_codo).round() * paso_codo,
+                    pto_previo.y,
+                )
+            } else {
+                Vec2::new(
+                    pto_previo.x,
+                    (pos_objetivo.y / paso_codo).round() * paso_codo,
+                )
+            }
+        } else {
+            Vec2::new(
+                (pos_objetivo.x / paso_codo).round() * paso_codo,
+                (pos_objetivo.y / paso_codo).round() * paso_codo,
+            )
+        };
         estado_linea.puntos_intermedios.push(codo_snap);
         return;
     }
@@ -808,11 +853,7 @@ pub fn detectar_clic_nodo(
     caja_sel.actual = pos_mundo;
 }
 
-
-// ==========================================
-// Fichero: src/raton.rs
-// Bloque: Bloque 3: Soltar Ratón, Cerrar Rectángulo de Selección, Snap e Imantar a Barras
-// ==========================================
+// --- Bloque 3: Soltar Ratón, Cerrar Rectángulo de Selección, Snap e Imantar a Barras ---
 pub fn soltar_nodo(
     buttons: Res<ButtonInput<MouseButton>>,
     q_nodos_todos: Query<
@@ -827,7 +868,6 @@ pub fn soltar_nodo(
         (&Transform, &Sprite, &BarraChip), 
         Without<Arrastrando>
     >,
-    // Agrupamos conectores y cables en una tupla para mantenernos por debajo de los 16 parámetros
     mut consultas_cables: (
         Query<(
             Entity, 
@@ -1074,7 +1114,10 @@ pub fn mover_nodo_arrastrado(
         (&Camera, &GlobalTransform), 
         With<CamaraPrincipal>
     >,
-    q_global_trf: Query<&GlobalTransform, Without<CamaraPrincipal>>,
+    q_global_trf: Query<
+        &GlobalTransform, 
+        Without<CamaraPrincipal>
+    >,
     arrastre_barra: Res<EstadoArrastreBarra>,
     mut caja_sel: ResMut<CajaSeleccion>,
     q_barras_y_nodos: (
@@ -1083,12 +1126,23 @@ pub fn mover_nodo_arrastrado(
             Without<BarraChip>,
         >,
         Query<
-            (&mut Transform, &mut Sprite, &BarraChip, &Children),
-            (Without<Arrastrando>, Without<PegadoABarra>),
+            (
+                &mut Transform, 
+                &mut Sprite, 
+                &BarraChip, 
+                &Children
+            ),
+            (
+                Without<Arrastrando>, 
+                Without<PegadoABarra>
+            ),
         >,
         Query<
             (&mut Transform, &PegadoABarra),
-            (Without<BarraChip>, Without<Arrastrando>),
+            (
+                Without<BarraChip>, 
+                Without<Arrastrando>
+            ),
         >,
         Query<
             (
@@ -1108,8 +1162,12 @@ pub fn mover_nodo_arrastrado(
     mut q_cables: Query<&mut Cable>,
     mut q_cables_bus: Query<&mut CableBus>,
 ) {
-    let Ok(window) = q_windows.single() else { return; };
-    let Ok((cam, cam_trf)) = q_camera.single() else { return; };
+    let Ok(window) = q_windows.single() else {
+        return;
+    };
+    let Ok((cam, cam_trf)) = q_camera.single() else {
+        return;
+    };
 
     let Some(pos_pantalla) = window.cursor_position() else {
         return;
@@ -1134,7 +1192,9 @@ pub fn mover_nodo_arrastrado(
     ) = q_barras_y_nodos;
 
     if let Some((barra_obj, modo_ajuste)) = arrastre_barra.activo {
-        for (mut trf_b, mut spr_b, tipo_b, hijos_b) in q_barras.iter_mut() {
+        for (mut trf_b, mut spr_b, tipo_b, hijos_b) in 
+            q_barras.iter_mut() 
+        {
             if *tipo_b != barra_obj {
                 continue;
             }
@@ -1142,7 +1202,8 @@ pub fn mover_nodo_arrastrado(
             match modo_ajuste {
                 ModoAjusteBarra::MoverHorizontal => {
                     let paso = 25.0;
-                    let mut nuevo_x = (pos_mundo.x / paso).round() * paso;
+                    let mut nuevo_x = (pos_mundo.x / paso).round() 
+                        * paso;
                     if barra_obj == BarraChip::IzquierdaEntradas {
                         nuevo_x = nuevo_x.min(-100.0);
                     } else {
@@ -1150,7 +1211,9 @@ pub fn mover_nodo_arrastrado(
                     }
                     trf_b.translation.x = nuevo_x;
 
-                    for (mut trf_pin, pegado) in q_pegados.iter_mut() {
+                    for (mut trf_pin, pegado) in 
+                        q_pegados.iter_mut() 
+                    {
                         if pegado.0 == barra_obj {
                             trf_pin.translation.x = nuevo_x;
                         }
@@ -1158,22 +1221,30 @@ pub fn mover_nodo_arrastrado(
                 }
                 ModoAjusteBarra::CambiarAltura => {
                     let paso = 50.0;
-                    let semialto = (
-                        (pos_mundo.y.abs() - 12.0).max(100.0) / paso
-                    ).round() * paso;
+                    let base_y = (pos_mundo.y.abs() - 12.0)
+                        .max(100.0);
+                    let semialto = (base_y / paso).round() * paso;
                     let nuevo_alto = (semialto * 2.0).max(200.0);
-                    spr_b.custom_size = Some(Vec2::new(18.0, nuevo_alto));
+                    spr_b.custom_size = Some(
+                        Vec2::new(18.0, nuevo_alto)
+                    );
 
                     for hijo in hijos_b.iter() {
-                        if let Ok((mut trf_h, opt_alto, opt_mover, opt_etq)) = 
-                            q_hijos_barra.get_mut(hijo) 
-                        {
+                        if let Ok((
+                            mut trf_h, 
+                            opt_alto, 
+                            opt_mover, 
+                            opt_etq
+                        )) = q_hijos_barra.get_mut(hijo) {
                             if opt_alto.is_some() {
-                                trf_h.translation.y = nuevo_alto / 2.0 + 12.0;
+                                trf_h.translation.y = 
+                                    nuevo_alto / 2.0 + 12.0;
                             } else if opt_mover.is_some() {
-                                trf_h.translation.y = -nuevo_alto / 2.0 - 12.0;
+                                trf_h.translation.y = 
+                                    -nuevo_alto / 2.0 - 12.0;
                             } else if opt_etq.is_some() {
-                                trf_h.translation.y = nuevo_alto / 2.0 + 38.0;
+                                trf_h.translation.y = 
+                                    nuevo_alto / 2.0 + 38.0;
                             }
                         }
                     }
@@ -1189,17 +1260,26 @@ pub fn mover_nodo_arrastrado(
     }
 
     if !codo_arrastrado.seleccion_bus.is_empty() {
-        for &(ent_cb, idx) in codo_arrastrado.seleccion_bus.iter() {
+        for &(ent_cb, idx) in 
+            codo_arrastrado.seleccion_bus.iter() 
+        {
             if let Ok(mut cb) = q_cables_bus.get_mut(ent_cb) {
                 let pto_ref = if idx > 0 {
-                    cb.puntos_intermedios.get(idx - 1).copied()
+                    cb.puntos_intermedios
+                        .get(idx - 1)
+                        .copied()
                 } else {
                     None
                 };
-                if let Some(codo) = cb.puntos_intermedios.get_mut(idx) {
+                if let Some(codo) = 
+                    cb.puntos_intermedios.get_mut(idx) 
+                {
                     if keys.pressed(KeyCode::KeyL) {
                         if let Some(base) = pto_ref {
-                            *codo = ajustar_ortogonal_90(base, pos_mundo);
+                            *codo = ajustar_ortogonal_90(
+                                base, 
+                                pos_mundo
+                            );
                         } else {
                             *codo = pos_mundo;
                         }
@@ -1215,7 +1295,9 @@ pub fn mover_nodo_arrastrado(
     if let Some((ent_cable, idx)) = codo_arrastrado.seleccion {
         if let Ok(mut cable) = q_cables.get_mut(ent_cable) {
             let pto_ref = if idx > 0 {
-                cable.puntos_intermedios.get(idx - 1).copied()
+                cable.puntos_intermedios
+                    .get(idx - 1)
+                    .copied()
             } else {
                 q_global_trf
                     .get(cable.origen)
@@ -1223,10 +1305,15 @@ pub fn mover_nodo_arrastrado(
                     .map(|t| t.translation().truncate())
             };
 
-            if let Some(codo) = cable.puntos_intermedios.get_mut(idx) {
+            if let Some(codo) = 
+                cable.puntos_intermedios.get_mut(idx) 
+            {
                 if keys.pressed(KeyCode::KeyL) {
                     if let Some(base) = pto_ref {
-                        *codo = ajustar_ortogonal_90(base, pos_mundo);
+                        *codo = ajustar_ortogonal_90(
+                            base, 
+                            pos_mundo
+                        );
                     } else {
                         *codo = pos_mundo;
                     }
@@ -1238,10 +1325,7 @@ pub fn mover_nodo_arrastrado(
     }
 }
 
-// ==========================================
-// Fichero: src/raton.rs
-// Bloque: Bloque 5: Borrar Nodo, Codo, Cable/CableBus, Insertar Punto (P + Clic Der) o Abrir Menú
-// ==========================================
+// --- Bloque 5: Borrar Nodo, Codo, Cable/CableBus, Insertar Punto (P + Clic Der) o Abrir Menú ---
 pub fn borrar_con_clic_derecho(
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -1255,7 +1339,6 @@ pub fn borrar_con_clic_derecho(
         (Entity, &Transform, Option<&Seleccionado>), 
         With<NodoLogico>
     >,
-    // Agrupamos cables, buses y menús en tuplas para no rebasar los 16 parámetros de Bevy
     mut consultas_cables_borrar: (
         Query<(Entity, &mut Cable)>,
         Query<(Entity, &mut CableBus)>,

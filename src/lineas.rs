@@ -207,18 +207,68 @@ pub fn dibuja_linea_temporal(
     }
 }
 
-// --- Bloque 4: Renderizado de Cables Permanentes, Buses Multicolor y Caja de Selección ---
+// ==========================================
+// Fichero: src/lineas.rs
+// Bloque: Bloque 4: Renderizado de Cables Permanentes, Buses Multicolor (Recortados bajo el Menú) y Selección
+// ==========================================
+fn punto_dentro_de_menus(
+    p: Vec2,
+    rects_menu: &[(Vec2, Vec2)],
+) -> bool {
+    for &(centro, semitam) in rects_menu.iter() {
+        if (p.x - centro.x).abs() <= semitam.x 
+            && (p.y - centro.y).abs() <= semitam.y 
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn trazar_segmento_sin_tapar_menu(
+    gizmos: &mut Gizmos,
+    a: Vec2,
+    b: Vec2,
+    color: Color,
+    rects_menu: &[(Vec2, Vec2)],
+) {
+    if rects_menu.is_empty() {
+        gizmos.line_2d(a, b, color);
+        return;
+    }
+
+    // Subdividimos en pequeños pasos solo cuando hay un menú abierto para recortar lo que queda debajo
+    let pasos = 24;
+    for s in 0..pasos {
+        let t0 = (s as f32) / (pasos as f32);
+        let t1 = ((s + 1) as f32) / (pasos as f32);
+        let p0 = a.lerp(b, t0);
+        let p1 = a.lerp(b, t1);
+        let medio = (p0 + p1) * 0.5;
+        if !punto_dentro_de_menus(medio, rects_menu) {
+            gizmos.line_2d(p0, p1, color);
+        }
+    }
+}
+
 pub fn dibuja_cables_permanentes(
     q_cables: Query<&Cable>,
     q_cables_bus: Query<&CableBus>,
     q_puertos_bus: Query<(&GlobalTransform, &PuertoTroncoBus)>,
     q_conectores: Query<(&GlobalTransform, &ValorSeñal)>,
     q_seleccionados: Query<&Transform, With<Seleccionado>>,
+    q_menus_activos: Query<(&Transform, &Sprite), Or<(With<MenuContextual>, With<SubMenuContextual>)>>,
     caja_sel: Res<CajaSeleccion>,
     mut gizmos: Gizmos,
     config: Res<ConfigApp>,
 ) {
-    // 1. Dibujar cables normales y sus codos
+    let mut rects_menu: Vec<(Vec2, Vec2)> = Vec::new();
+    for (trf_m, spr_m) in q_menus_activos.iter() {
+        let tam = spr_m.custom_size.unwrap_or(Vec2::new(150.0, 260.0));
+        rects_menu.push((trf_m.translation.truncate(), tam * 0.5 + Vec2::splat(4.0)));
+    }
+
+    // 1. Dibujar cables normales y sus codos (sin tapar el menú contextual)
     for cable in q_cables.iter() {
         let Ok((trf_ori, val_ori)) = q_conectores.get(cable.origen) else {
             continue;
@@ -243,19 +293,23 @@ pub fn dibuja_cables_permanentes(
         puntos.push(trf_des.translation().truncate());
 
         for ventana in puntos.windows(2) {
-            gizmos.line_2d(
-                ventana[0], 
-                ventana[1], 
-                color
+            trazar_segmento_sin_tapar_menu(
+                &mut gizmos,
+                ventana[0],
+                ventana[1],
+                color,
+                &rects_menu,
             );
         }
 
         for &codo in cable.puntos_intermedios.iter() {
-            gizmos.circle_2d(codo, 4.5, color);
+            if !punto_dentro_de_menus(codo, &rects_menu) {
+                gizmos.circle_2d(codo, 4.5, color);
+            }
         }
     }
 
-    // 2. Dibujar todos los Buses (CableBus) con sus N pistas verdes/rojas y anillos de unión
+    // 2. Dibujar todos los Buses (CableBus) con sus N pistas verdes/rojas (sin tapar el menú)
     for cb in q_cables_bus.iter() {
         let mut pos_ori = None;
         let mut pos_des = None;
@@ -269,20 +323,71 @@ pub fn dibuja_cables_permanentes(
         }
 
         if let (Some(p_a), Some(p_b)) = (pos_ori, pos_des) {
-            let mut puntos = Vec::with_capacity(cb.puntos_intermedios.len() + 2);
+            let mut puntos = Vec::with_capacity(
+                cb.puntos_intermedios.len() + 2
+            );
             puntos.push(p_a);
             for &codo in cb.puntos_intermedios.iter() {
                 puntos.push(codo);
             }
             puntos.push(p_b);
 
-            dibujar_cinta_bus(
-                &mut gizmos,
-                &puntos,
-                &cb.estados,
-                cb.num_hilos,
-                &config,
-            );
+            if rects_menu.is_empty() {
+                dibujar_cinta_bus(
+                    &mut gizmos,
+                    &puntos,
+                    &cb.estados,
+                    cb.num_hilos,
+                    &config,
+                );
+            } else {
+                let n = cb.num_hilos.max(2);
+                let paso_hilo = 2.0f32;
+                let semiancho = ((n - 1) as f32 * paso_hilo) / 2.0;
+                let col_borde_bus = Color::srgb(0.08, 0.10, 0.14);
+
+                for ventana in puntos.windows(2) {
+                    let a = ventana[0];
+                    let b = ventana[1];
+                    let dir = (b - a).normalize_or_zero();
+                    if dir == Vec2::ZERO {
+                        continue;
+                    }
+                    let perp = Vec2::new(-dir.y, dir.x);
+                    let off_ext = perp * (semiancho + 2.2);
+                    trazar_segmento_sin_tapar_menu(
+                        &mut gizmos,
+                        a + off_ext,
+                        b + off_ext,
+                        col_borde_bus,
+                        &rects_menu,
+                    );
+                    trazar_segmento_sin_tapar_menu(
+                        &mut gizmos,
+                        a - off_ext,
+                        b - off_ext,
+                        col_borde_bus,
+                        &rects_menu,
+                    );
+                    for i in 0..n {
+                        let desp = semiancho - (i as f32 * paso_hilo);
+                        let off_i = perp * desp;
+                        let bit_activo = cb.estados.get(i).copied().unwrap_or(false);
+                        let col_hilo = if bit_activo {
+                            config.col_estado_1
+                        } else {
+                            config.col_estado_0
+                        };
+                        trazar_segmento_sin_tapar_menu(
+                            &mut gizmos,
+                            a + off_i,
+                            b + off_i,
+                            col_hilo,
+                            &rects_menu,
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -290,11 +395,13 @@ pub fn dibuja_cables_permanentes(
     let col_sel = Color::srgb(0.15, 0.65, 1.0);
     for trf_sel in q_seleccionados.iter() {
         let c = trf_sel.translation.truncate();
-        gizmos.rect_2d(
-            c, 
-            Vec2::new(92.0, 56.0), 
-            col_sel
-        );
+        if !punto_dentro_de_menus(c, &rects_menu) {
+            gizmos.rect_2d(
+                c, 
+                Vec2::new(92.0, 56.0), 
+                col_sel
+            );
+        }
     }
 
     if caja_sel.activa {
