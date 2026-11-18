@@ -284,7 +284,10 @@ pub fn abrir_selector_carga(
     });
 }
 
-// --- Bloque 4: Gestión de Teclado para Nombrar Conexiones (Tecla N) ---
+// ==========================================
+// Fichero: src/archivo.rs
+// Bloque: Bloque 4: Gestión de Teclado para Nombrar Conexiones (Tecla N, incluye <, >, =, +, -, Espacio)
+// ==========================================
 pub fn gestionar_nombrado_pin(
     keys: Res<ButtonInput<KeyCode>>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
@@ -386,32 +389,67 @@ pub fn gestionar_nombrado_pin(
             hubo_cambio = true;
         }
 
-        let mapa_teclas: [(KeyCode, char); 37] = [
-            (KeyCode::KeyA, 'A'), (KeyCode::KeyB, 'B'),
-            (KeyCode::KeyC, 'C'), (KeyCode::KeyD, 'D'),
-            (KeyCode::KeyE, 'E'), (KeyCode::KeyF, 'F'),
-            (KeyCode::KeyG, 'G'), (KeyCode::KeyH, 'H'),
-            (KeyCode::KeyI, 'I'), (KeyCode::KeyJ, 'J'),
-            (KeyCode::KeyK, 'K'), (KeyCode::KeyL, 'L'),
-            (KeyCode::KeyM, 'M'), (KeyCode::KeyN, 'N'),
-            (KeyCode::KeyO, 'O'), (KeyCode::KeyP, 'P'),
-            (KeyCode::KeyQ, 'Q'), (KeyCode::KeyR, 'R'),
-            (KeyCode::KeyS, 'S'), (KeyCode::KeyT, 'T'),
-            (KeyCode::KeyU, 'U'), (KeyCode::KeyV, 'V'),
-            (KeyCode::KeyW, 'W'), (KeyCode::KeyX, 'X'),
-            (KeyCode::KeyY, 'Y'), (KeyCode::KeyZ, 'Z'),
-            (KeyCode::Digit0, '0'), (KeyCode::Digit1, '1'),
-            (KeyCode::Digit2, '2'), (KeyCode::Digit3, '3'),
-            (KeyCode::Digit4, '4'), (KeyCode::Digit5, '5'),
-            (KeyCode::Digit6, '6'), (KeyCode::Digit7, '7'),
-            (KeyCode::Digit8, '8'), (KeyCode::Digit9, '9'),
-            (KeyCode::Minus, '_'),
-        ];
+        let shift = keys.pressed(KeyCode::ShiftLeft) 
+            || keys.pressed(KeyCode::ShiftRight);
 
-        for (codigo, caracter) in mapa_teclas {
-            if keys.just_pressed(codigo) && dlg.texto_actual.len() < 12 {
-                dlg.texto_actual.push(caracter);
+        // Símbolos <, >, =, +, - y Espacio para etiquetas como A>B, INC A+B, DEC A-B
+        if keys.just_pressed(KeyCode::Period) && dlg.texto_actual.len() < 12 {
+            dlg.texto_actual.push('>');
+            hubo_cambio = true;
+        } else if keys.just_pressed(KeyCode::Comma) && dlg.texto_actual.len() < 12 {
+            dlg.texto_actual.push('<');
+            hubo_cambio = true;
+        } else if keys.just_pressed(KeyCode::NumpadAdd) 
+            || (shift && keys.just_pressed(KeyCode::BracketRight)) 
+        {
+            if dlg.texto_actual.len() < 12 {
+                dlg.texto_actual.push('+');
                 hubo_cambio = true;
+            }
+        } else if keys.just_pressed(KeyCode::NumpadSubtract) 
+            || keys.just_pressed(KeyCode::Slash) 
+        {
+            if dlg.texto_actual.len() < 12 {
+                dlg.texto_actual.push('-');
+                hubo_cambio = true;
+            }
+        } else if keys.just_pressed(KeyCode::Space) && dlg.texto_actual.len() < 12 {
+            dlg.texto_actual.push(' ');
+            hubo_cambio = true;
+        } else if (keys.just_pressed(KeyCode::Equal) 
+            || (shift && keys.just_pressed(KeyCode::Digit0))) 
+            && dlg.texto_actual.len() < 12 
+        {
+            dlg.texto_actual.push('=');
+            hubo_cambio = true;
+        } else {
+            let mapa_teclas: [(KeyCode, char); 37] = [
+                (KeyCode::KeyA, 'A'), (KeyCode::KeyB, 'B'),
+                (KeyCode::KeyC, 'C'), (KeyCode::KeyD, 'D'),
+                (KeyCode::KeyE, 'E'), (KeyCode::KeyF, 'F'),
+                (KeyCode::KeyG, 'G'), (KeyCode::KeyH, 'H'),
+                (KeyCode::KeyI, 'I'), (KeyCode::KeyJ, 'J'),
+                (KeyCode::KeyK, 'K'), (KeyCode::KeyL, 'L'),
+                (KeyCode::KeyM, 'M'), (KeyCode::KeyN, 'N'),
+                (KeyCode::KeyO, 'O'), (KeyCode::KeyP, 'P'),
+                (KeyCode::KeyQ, 'Q'), (KeyCode::KeyR, 'R'),
+                (KeyCode::KeyS, 'S'), (KeyCode::KeyT, 'T'),
+                (KeyCode::KeyU, 'U'), (KeyCode::KeyV, 'V'),
+                (KeyCode::KeyW, 'W'), (KeyCode::KeyX, 'X'),
+                (KeyCode::KeyY, 'Y'), (KeyCode::KeyZ, 'Z'),
+                (KeyCode::Digit0, '0'), (KeyCode::Digit1, '1'),
+                (KeyCode::Digit2, '2'), (KeyCode::Digit3, '3'),
+                (KeyCode::Digit4, '4'), (KeyCode::Digit5, '5'),
+                (KeyCode::Digit6, '6'), (KeyCode::Digit7, '7'),
+                (KeyCode::Digit8, '8'), (KeyCode::Digit9, '9'),
+                (KeyCode::Minus, '-'),
+            ];
+
+            for (codigo, caracter) in mapa_teclas {
+                if keys.just_pressed(codigo) && dlg.texto_actual.len() < 12 {
+                    dlg.texto_actual.push(caracter);
+                    hubo_cambio = true;
+                }
             }
         }
 
